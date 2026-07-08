@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>日频 K 线图</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <script src="./kline_data.js" defer></script>
+    <script src="./app.js" defer></script>
+  </head>
+  <body>
+    <main class="app">
+      <section class="toolbar" aria-label="K 线控制栏">
+        <div class="brand">
+          <h1>日频 K 线图</h1>
+          <p id="dataRange">加载中</p>
+        </div>
+
+        <label class="control">
+          <span>股票</span>
+          <input id="codeSearch" type="search" placeholder="搜索代码" autocomplete="off" />
+        </label>
+
+        <label class="control">
+          <span>选择</span>
+          <select id="codeSelect"></select>
+        </label>
+
+        <div class="rangeButtons" aria-label="显示区间">
+          <button type="button" data-range="60">60</button>
+          <button type="button" data-range="120" class="active">120</button>
+          <button type="button" data-range="240">240</button>
+          <button type="button" data-range="all">全部</button>
+        </div>
+
+        <a class="download" href="./data/daily_kline.csv">下载日频 CSV</a>
+      </section>
+
+      <section class="summary" aria-label="最新行情">
+        <div>
+          <span>代码</span>
+          <strong id="statCode">--</strong>
+        </div>
+        <div>
+          <span>日期</span>
+          <strong id="statDate">--</strong>
+        </div>
+        <div>
+          <span>收盘</span>
+          <strong id="statClose">--</strong>
+        </div>
+        <div>
+          <span>涨跌幅</span>
+          <strong id="statReturn">--</strong>
+        </div>
+        <div>
+          <span>成交量</span>
+          <strong id="statVolume">--</strong>
+        </div>
+        <div>
+          <span>成交额</span>
+          <strong id="statAmount">--</strong>
+        </div>
+        <div>
+          <span>主买量</span>
+          <strong id="statBuyVolume">--</strong>
+        </div>
+        <div>
+          <span>主卖量</span>
+          <strong id="statSellVolume">--</strong>
+        </div>
+        <div>
+          <span>主买额</span>
+          <strong id="statBuyAmount">--</strong>
+        </div>
+        <div>
+          <span>主卖额</span>
+          <strong id="statSellAmount">--</strong>
+        </div>
+      </section>
+
+      <section class="chartShell">
+        <canvas id="klineCanvas" aria-label="K 线图"></canvas>
+        <div id="tooltip" class="tooltip" hidden></div>
+      </section>
+
+      <section class="dataPanel">
+        <div class="sectionTitle">
+          <h2>最近 K 线数据</h2>
+          <span>OHLCV</span>
+        </div>
+        <div class="tableWrap">
+          <table>
+            <thead>
+              <tr>
+                <th>日期</th>
+                <th>开盘</th>
+                <th>最高</th>
+                <th>最低</th>
+                <th>收盘</th>
+                <th>成交量</th>
+                <th>成交笔数</th>
+                <th>成交额</th>
+                <th>主买量</th>
+                <th>主卖量</th>
+                <th>主买额</th>
+                <th>主卖额</th>
+              </tr>
+            </thead>
+            <tbody id="recentRows"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="dataPanel">
+        <div class="sectionTitle">
+          <h2>CSV 与说明文件</h2>
+          <span>已更新</span>
+        </div>
+        <div class="downloadGrid">
+          <a class="download" href="./data/daily_kline.csv">完整日频 K 线 CSV</a>
+          <a class="download" href="./data/minute_kline_20250401.csv">分钟频样例 CSV</a>
+          <a class="download" href="./data/factor_values.csv">因子构建结果 CSV</a>
+          <a class="download" href="./data/factor_formulas_zh.csv">因子公式 CSV</a>
+          <a class="download" href="./data/output_structure.csv">输出结构 CSV</a>
+          <a class="download" href="./assignment_outputs_zh.md">缺失值与字段说明</a>
+        </div>
+      </section>
+
+      <section class="dataPanel">
+        <div class="sectionTitle">
+          <h2>字段与输出结构</h2>
+          <span>每个字段一张表</span>
+        </div>
+        <div class="noteGrid">
+          <div>
+            <h3>日频</h3>
+            <p><code>processed/daily/&lt;field&gt;.csv</code>，行是日期，列是股票代码。</p>
+          </div>
+          <div>
+            <h3>分钟频</h3>
+            <p><code>processed/minute/&lt;field&gt;/YYYYMMDD.csv</code>，行是分钟，列是股票代码。</p>
+          </div>
+          <div>
+            <h3>主买主卖</h3>
+            <p><code>BSFlag == 0</code> 为主买，<code>BSFlag == 1</code> 为主卖，集合竞价只计入总量和总额。</p>
+          </div>
+          <div>
+            <h3>缺失值</h3>
+            <p>价格字段用前收盘或前一分钟收盘填充，成交量/成交额/主买主卖字段无成交填 0。</p>
+          </div>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

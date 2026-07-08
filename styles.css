@@ -1,0 +1,290 @@
+:root {
+  --bg: #f7f8fa;
+  --panel: #ffffff;
+  --text: #1f2933;
+  --muted: #6b7280;
+  --line: #d8dde6;
+  --grid: #edf0f4;
+  --up: #d92d20;
+  --down: #079455;
+  --accent: #2563eb;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.app {
+  width: min(1440px, 100%);
+  margin: 0 auto;
+  padding: 16px;
+}
+
+.toolbar,
+.summary,
+.chartShell,
+.dataPanel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.toolbar {
+  display: grid;
+  grid-template-columns: 1fr 180px 180px auto auto;
+  gap: 12px;
+  align-items: end;
+  padding: 14px;
+}
+
+.brand h1 {
+  margin: 0;
+  font-size: 22px;
+  line-height: 1.2;
+}
+
+.brand p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.control {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+input,
+select,
+button,
+.download {
+  height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--text);
+  font: inherit;
+}
+
+input,
+select {
+  width: 100%;
+  padding: 0 10px;
+}
+
+.rangeButtons {
+  display: flex;
+  gap: 6px;
+}
+
+button {
+  min-width: 52px;
+  padding: 0 10px;
+  cursor: pointer;
+}
+
+button.active {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+.download {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  padding: 0 14px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.downloadGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.downloadGrid .download {
+  justify-content: flex-start;
+}
+
+.summary {
+  display: grid;
+  grid-template-columns: repeat(10, 1fr);
+  gap: 1px;
+  margin-top: 12px;
+  overflow: hidden;
+}
+
+.summary div {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border-right: 1px solid var(--grid);
+}
+
+.summary div:last-child {
+  border-right: 0;
+}
+
+.summary span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.summary strong {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.chartShell {
+  position: relative;
+  height: min(68vh, 720px);
+  min-height: 420px;
+  margin-top: 12px;
+  overflow: hidden;
+}
+
+canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.tooltip {
+  position: absolute;
+  z-index: 3;
+  min-width: 180px;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.12);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.65;
+  pointer-events: none;
+}
+
+.dataPanel {
+  margin-top: 12px;
+  padding: 12px;
+}
+
+.sectionTitle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.sectionTitle h2 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.sectionTitle span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.noteGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.noteGrid div {
+  border: 1px solid var(--grid);
+  border-radius: 6px;
+  padding: 10px;
+}
+
+.noteGrid h3 {
+  margin: 0 0 6px;
+  font-size: 14px;
+}
+
+.noteGrid p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+code {
+  color: #334155;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.92em;
+}
+
+.tableWrap {
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+th,
+td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--grid);
+  text-align: right;
+  white-space: nowrap;
+}
+
+th:first-child,
+td:first-child {
+  text-align: left;
+}
+
+th {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.up {
+  color: var(--up);
+}
+
+.down {
+  color: var(--down);
+}
+
+@media (max-width: 900px) {
+  .toolbar {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .brand,
+  .rangeButtons,
+  .download {
+    grid-column: 1 / -1;
+  }
+
+  .summary {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .downloadGrid,
+  .noteGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .chartShell {
+    min-height: 360px;
+  }
+}

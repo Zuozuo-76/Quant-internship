@@ -1,0 +1,24 @@
+asset,path_pattern,frequency,layout,index_column,stock_columns,file_count,description
+open,processed/daily/open.csv,daily,wide,date,300 stock-code columns,1,开盘价
+high,processed/daily/high.csv,daily,wide,date,300 stock-code columns,1,最高价
+low,processed/daily/low.csv,daily,wide,date,300 stock-code columns,1,最低价
+close,processed/daily/close.csv,daily,wide,date,300 stock-code columns,1,收盘价
+volume,processed/daily/volume.csv,daily,wide,date,300 stock-code columns,1,成交量
+trade_count,processed/daily/trade_count.csv,daily,wide,date,300 stock-code columns,1,成交笔数
+amount,processed/daily/amount.csv,daily,wide,date,300 stock-code columns,1,成交额
+buy_volume,processed/daily/buy_volume.csv,daily,wide,date,300 stock-code columns,1,主买量
+sell_volume,processed/daily/sell_volume.csv,daily,wide,date,300 stock-code columns,1,主卖量
+buy_amount,processed/daily/buy_amount.csv,daily,wide,date,300 stock-code columns,1,主买额
+sell_amount,processed/daily/sell_amount.csv,daily,wide,date,300 stock-code columns,1,主卖额
+open,processed/minute/open/YYYYMMDD.csv,minute,wide by date,minute,300 stock-code columns,302,开盘价
+high,processed/minute/high/YYYYMMDD.csv,minute,wide by date,minute,300 stock-code columns,302,最高价
+low,processed/minute/low/YYYYMMDD.csv,minute,wide by date,minute,300 stock-code columns,302,最低价
+close,processed/minute/close/YYYYMMDD.csv,minute,wide by date,minute,300 stock-code columns,302,收盘价
+volume,processed/minute/volume/YYYYMMDD.csv,minute,wide by date,minute,300 stock-code columns,302,成交量
+trade_count,processed/minute/trade_count/YYYYMMDD.csv,minute,wide by date,minute,300 stock-code columns,302,成交笔数
+amount,processed/minute/amount/YYYYMMDD.csv,minute,wide by date,minute,300 stock-code columns,302,成交额
+buy_volume,processed/minute/buy_volume/YYYYMMDD.csv,minute,wide by date,minute,300 stock-code columns,302,主买量
+sell_volume,processed/minute/sell_volume/YYYYMMDD.csv,minute,wide by date,minute,300 stock-code columns,302,主卖量
+buy_amount,processed/minute/buy_amount/YYYYMMDD.csv,minute,wide by date,minute,300 stock-code columns,302,主买额
+sell_amount,processed/minute/sell_amount/YYYYMMDD.csv,minute,wide by date,minute,300 stock-code columns,302,主卖额
+factor_values,factors/factor_long.rds or factors/factor_long.csv,daily,long,"date,code",factor columns,1,Daily factor construction result

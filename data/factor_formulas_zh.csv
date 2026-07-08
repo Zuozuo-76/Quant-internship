@@ -1,0 +1,5 @@
+factor,中文名称,公式,使用字段,说明
+amount_mean_sd_log,成交额滚动均值波动因子,"log(1 + sd(mean_1d(amount), mean_5d(amount), mean_10d(amount), mean_20d(amount)))",amount,"衡量不同窗口成交额均值之间的波动程度，窗口不足 20 日时为 NA"
+buy_sell_imbalance_5d,5 日主买主卖不平衡因子,"mean_5d((buy_volume - sell_volume) / max(volume, 1))","buy_volume,sell_volume,volume","衡量最近 5 日主动买入相对主动卖出的强弱"
+intraday_range_10d,10 日日内振幅因子,"mean_10d((high - low) / close)","high,low,close","衡量最近 10 日平均日内波动幅度"
+reversal_5d,5 日反转因子,"-(close / close_lag_5d - 1)",close,"过去 5 日收益率取负，用于捕捉短期反转"
