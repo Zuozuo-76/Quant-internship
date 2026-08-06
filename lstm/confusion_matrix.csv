@@ -1,0 +1,4 @@
+model,tn,fp,fn,tp
+majority_class,57798,0,26082,0
+logistic_regression,56673,1125,24934,1148
+lstm,55749,2049,23969,2113

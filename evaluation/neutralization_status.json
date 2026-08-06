@@ -1,0 +1,6 @@
+{
+  "status": "SKIPPED_NO_EXPOSURES",
+  "method": "daily OLS residual on industry dummies and log market cap",
+  "source": null,
+  "reason": "Obfuscated stock codes and no industry/market_cap file in assignment data"
+}

@@ -1,0 +1,78 @@
+{
+  "model_type": "torch.nn.LSTM",
+  "input_size": 5,
+  "hidden_size": 16,
+  "features": [
+    "log_return",
+    "range",
+    "log_volume",
+    "buy_sell_imbalance",
+    "time_position"
+  ],
+  "sequence_length": 20,
+  "fold": 3,
+  "best_epoch": 3,
+  "train_start": "20250401",
+  "train_end": "20250825",
+  "validation_start": "20250826",
+  "validation_end": "20250922",
+  "test_start": "20250923",
+  "test_end": "20251028",
+  "device_used": "cpu",
+  "walk_forward": true,
+  "codes": [
+    "000012",
+    "000014",
+    "000019",
+    "000020",
+    "000027",
+    "000030"
+  ],
+  "n_dates": 140,
+  "fold_count": 3,
+  "feature_mean": [
+    3.895788722729776e-06,
+    0.0015976667637005448,
+    9.69959545135498,
+    -0.06773015111684799,
+    0.4980015754699707
+  ],
+  "feature_std": [
+    0.0018596153240650892,
+    0.0018257055198773742,
+    2.4875059127807617,
+    0.6129727959632874,
+    0.26761454343795776
+  ],
+  "date_start": "20250401",
+  "date_end": "20251028",
+  "folds": [
+    {
+      "fold": 1,
+      "train_start": "20250401",
+      "train_end": "20250630",
+      "validation_start": "20250701",
+      "validation_end": "20250728",
+      "test_start": "20250729",
+      "test_end": "20250825"
+    },
+    {
+      "fold": 2,
+      "train_start": "20250401",
+      "train_end": "20250728",
+      "validation_start": "20250729",
+      "validation_end": "20250825",
+      "test_start": "20250826",
+      "test_end": "20250922"
+    },
+    {
+      "fold": 3,
+      "train_start": "20250401",
+      "train_end": "20250825",
+      "validation_start": "20250826",
+      "validation_end": "20250922",
+      "test_start": "20250923",
+      "test_end": "20251028"
+    }
+  ]
+}

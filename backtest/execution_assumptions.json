@@ -1,0 +1,62 @@
+{
+  "signal_execution_delay": "signal at t, trade at t+1 open or close",
+  "sell_fee": 0.0005,
+  "base_slippage_bps_each_side": 5.0,
+  "impact_model": "min(max_rate, coefficient * sqrt(order_notional / daily_amount))",
+  "impact_coefficient": 0.01,
+  "max_impact_rate": 0.02,
+  "benchmark": "daily equal-weight return of stocks buyable at the entry; no benchmark transaction costs",
+  "cost_scenarios": {
+    "optimistic": {
+      "base_slippage_bps": 0.0,
+      "impact_coefficient": 0.0,
+      "max_impact_rate": 0.0
+    },
+    "base": {
+      "base_slippage_bps": 5.0,
+      "impact_coefficient": 0.01,
+      "max_impact_rate": 0.02
+    },
+    "pessimistic": {
+      "base_slippage_bps": 10.0,
+      "impact_coefficient": 0.015,
+      "max_impact_rate": 0.03
+    }
+  },
+  "turnover_policies": {
+    "daily_top10": {
+      "portfolio_size": 10,
+      "rebalance_interval": 1,
+      "buffer_exit_rank": null
+    },
+    "five_day_top10": {
+      "portfolio_size": 10,
+      "rebalance_interval": 5,
+      "buffer_exit_rank": null
+    },
+    "daily_buffer20": {
+      "portfolio_size": 10,
+      "rebalance_interval": 1,
+      "buffer_exit_rank": 20
+    },
+    "five_day_buffer20": {
+      "portfolio_size": 10,
+      "rebalance_interval": 5,
+      "buffer_exit_rank": 20
+    },
+    "five_day_buffer60_top30": {
+      "portfolio_size": 30,
+      "rebalance_interval": 5,
+      "buffer_exit_rank": 60
+    }
+  },
+  "recommended_turnover_policy": "five_day_buffer60_top30",
+  "new_factors": [
+    "avg_trade_size_surprise_20d",
+    "gap_intraday_divergence_5d",
+    "price_volume_pressure_10d"
+  ],
+  "new_factor_signal_scale": 0.1,
+  "suspension_rule": "entry-day volume <= 0 or amount <= 0 blocks trading",
+  "limit_rule": "one-price day and entry/previous-close move >= 9.5%; limit-up blocks buys, limit-down blocks sells"
+}

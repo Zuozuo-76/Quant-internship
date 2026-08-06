@@ -1,0 +1,8 @@
+factor,name_zh,formula,kind
+amount_mean_sd_log,成交额多窗口均值离散度,"log(1 + sd(mean_1d(amount), mean_5d(amount), mean_10d(amount), mean_20d(amount)))",题目示例因子
+buy_sell_imbalance_surprise_10d,10日主动买卖不平衡冲击,active_imbalance_t - mean_prev_10d(active_imbalance),自建因子
+intraday_range_10d,10日日内振幅,mean_10d((high - low) / close),自建因子
+reversal_5d,5日反转,-(close / close_lag_5d - 1),自建因子
+avg_trade_size_surprise_20d,20日单笔成交规模异常,"zscore_20d(log(1 + amount / max(trade_count, 1)))",新增因子
+price_volume_pressure_10d,10日价量压力,mean_10d(return_1d * diff(log(1 + volume))),新增因子
+gap_intraday_divergence_5d,5日隔夜-日内收益背离,mean_5d((open / close_lag_1d - 1) - (close / open - 1)),新增因子

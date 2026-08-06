@@ -1,0 +1,25 @@
+.DS_Store
+.idea/
+.junie/
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.Rhistory
+
+# Large local datasets and reproducible intermediate tables
+data/
+processed/
+evaluation/factor_evaluation_panel.csv
+
+# Local scratch files
+tmp/
+*.log
+
+# LaTeX build intermediates
+*.aux
+*.fdb_latexmk
+*.fls
+*.out
+*.xdv
+*.toc

@@ -1,0 +1,162 @@
+% Options for packages loaded elsewhere
+\PassOptionsToPackage{unicode}{hyperref}
+\PassOptionsToPackage{hyphens}{url}
+\documentclass[
+]{article}
+\usepackage{xcolor}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\setcounter{secnumdepth}{-\maxdimen} % remove section numbering
+\usepackage{iftex}
+\ifPDFTeX
+  \usepackage[T1]{fontenc}
+  \usepackage[utf8]{inputenc}
+  \usepackage{textcomp} % provide euro and other symbols
+\else % if luatex or xetex
+  \usepackage{unicode-math} % this also loads fontspec
+  \defaultfontfeatures{Scale=MatchLowercase}
+  \defaultfontfeatures[\rmfamily]{Ligatures=TeX,Scale=1}
+\fi
+\usepackage{lmodern}
+\ifPDFTeX\else
+  % xetex/luatex font selection
+\fi
+% Use upquote if available, for straight quotes in verbatim environments
+\IfFileExists{upquote.sty}{\usepackage{upquote}}{}
+\IfFileExists{microtype.sty}{% use microtype if available
+  \usepackage[]{microtype}
+  \UseMicrotypeSet[protrusion]{basicmath} % disable protrusion for tt fonts
+}{}
+\makeatletter
+\@ifundefined{KOMAClassName}{% if non-KOMA class
+  \IfFileExists{parskip.sty}{%
+    \usepackage{parskip}
+  }{% else
+    \setlength{\parindent}{0pt}
+    \setlength{\parskip}{6pt plus 2pt minus 1pt}}
+}{% if KOMA class
+  \KOMAoptions{parskip=half}}
+\makeatother
+\usepackage{graphicx}
+\makeatletter
+\newsavebox\pandoc@box
+\newcommand*\pandocbounded[1]{% scales image to fit in text height/width
+  \sbox\pandoc@box{#1}%
+  \Gscale@div\@tempa{\textheight}{\dimexpr\ht\pandoc@box+\dp\pandoc@box\relax}%
+  \Gscale@div\@tempb{\linewidth}{\wd\pandoc@box}%
+  \ifdim\@tempb\p@<\@tempa\p@\let\@tempa\@tempb\fi% select the smaller of both
+  \ifdim\@tempa\p@<\p@\scalebox{\@tempa}{\usebox\pandoc@box}%
+  \else\usebox{\pandoc@box}%
+  \fi%
+}
+% Set default figure placement to htbp
+\def\fps@figure{htbp}
+\makeatother
+\setlength{\emergencystretch}{3em} % prevent overfull lines
+\providecommand{\tightlist}{%
+  \setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+\usepackage{bookmark}
+\IfFileExists{xurl.sty}{\usepackage{xurl}}{} % add URL line breaks if available
+\urlstyle{same}
+\hypersetup{
+  hidelinks,
+  pdfcreator={LaTeX via pandoc}}
+
+\author{}
+\date{\vspace{-2.5em}}
+
+\begin{document}
+
+\section{逐笔成交量化作业口播稿}\label{ux9010ux7b14ux6210ux4ea4ux91cfux5316ux4f5cux4e1aux53e3ux64adux7a3f}
+
+\begin{quote}
+建议时长：7-8 分钟。括号内是提示，不需要逐字念。
+\end{quote}
+
+\subsection{0:00-0:40
+开场与总体进度}\label{ux5f00ux573aux4e0eux603bux4f53ux8fdbux5ea6}
+
+大家好，下面我汇报一下这次逐笔成交量化作业的完成情况。这次作业的主线是：先把
+300 只股票、302
+个交易日的逐笔成交数据降采样为日频和分钟频，然后构建和评价因子，再做 IC
+加权的 Top 10 组合回测，最后用 LSTM
+预测下一分钟涨跌。目前主任务和两个拓展都已完成，并且全量验证结果是
+PASS，4 项单元测试也全部通过。
+
+\subsection{0:40-2:00 数据处理}\label{ux6570ux636eux5904ux7406}
+
+第一部分是数据降采样。原始字段包括成交时间、成交价格、成交量和主买主卖标志。我输出了
+11
+个基础字段，包括开高低收、成交量、成交笔数、成交额，以及主买主卖的量和金额。
+
+在时间索引上，程序保留了开盘集合竞价、上下午连续竞价，以及 15
+点收盘分钟，每天一共 253
+行。对于无成交分钟，价格用前一分钟收盘填充；日内开始的空白用前一天收盘填充；量和金额则填零。这样可以避免用当日未来价格向前填充。
+
+另外，题目补丁要求用复权因子修正价格。我对开高低收使用``原始价除以
+100，再乘复权因子''，但成交额仍按实际成交价计算。最终日频每个字段都是
+302 乘 300 的宽表，分钟频一共 3322 张表。
+
+\subsection{2:00-3:20
+因子构建与评价}\label{ux56e0ux5b50ux6784ux5efaux4e0eux8bc4ux4ef7}
+
+第二部分是因子。我共构建了 4
+个日频因子。第一个是题目给的示例因子，也就是 1、5、10、20
+日成交额均值之间的标准差，再做对数变换。另外三个自建因子是 5
+日主动买卖不平衡、10 日日内振幅和 5 日反转。
+
+在评价前，我每天对因子横截面做 1\% 和 99\% 缩尾，再做 z-score
+标准化。预测目标是下一交易日收盘到收盘收益。评价指标包括
+IC、IR、ICIR、Rank IC、Rank IR、Rank ICIR，以及五分组和 Q5 减 Q1
+多空收益。
+
+从结果看，成交额多窗口因子的 Rank IC 是负
+0.1070，绝对值最大，说明它是稳定的反向因子。5 日反转因子的 Rank IC 是正
+0.0558，Q5 减 Q1 累计收益是
+50.53\%。主动买卖不平衡因子接近于零，单独解释力比较弱。
+
+\subsection{3:20-5:10
+组合回测和前视偏差}\label{ux7ec4ux5408ux56deux6d4bux548cux524dux89c6ux504fux5dee}
+
+第三部分是回测。按题目设定，初始资金为 1000 万，每天按综合信号选前 10
+只股票等权持有，卖出手续费为万分之五，买入费用不计。我同时计算了收盘到收盘，和次日开盘到下一个开盘两种持有口径。
+
+这里最重要的是前视偏差。题目的字面表述是用当日因子和次日收益计算当日
+IC，然后立即用来加权。但在当日调仓时，次日收益还没发生，所以这个方案使用了未来信息。我保留它作为错误对照，但不把它当成策略结果。对照结果出现了
+2200\% 到 2480\% 的总收益，这种异常高收益正是数据泄漏的警报。
+
+修正方案是每个交易日只使用此前 20 日 IC
+的均值，而且整体滞后一天。在这个可信版本下，收盘到收盘的总收益是
+65.75\%，夏普率 2.291，最大回撤负 10.55\%。次日开盘到开盘的总收益是
+23.72\%，夏普率 0.998，最大回撤负
+23.00\%。后一个口径更保守，也说明策略对实际成交时点很敏感。
+
+\subsection{5:10-6:35 LSTM 拓展}\label{lstm-ux62d3ux5c55}
+
+第四部分是 LSTM。当前实验使用股票 000012 的前 60 个交易日，用过去 20
+分钟预测下一分钟是否上涨。输入特征是对数收益、分钟振幅、对数成交量、主动买卖不平衡和日内时间位置。模型是单层
+PyTorch LSTM，隐藏维度 16，再接一个线性二分类头。
+
+为了避免时序泄漏，数据按时间顺序切分为 70\% 训练、15\% 验证和 15\%
+测试，标准化参数只用训练集估计。训练使用
+Adam、二元交叉熵和梯度裁剪，保留验证损失最低的检查点。
+
+测试集有 2097 个样本，准确率 58.99\%，平衡准确率 51.05\%，AUC 是
+0.5654。不过，多数类基线准确率是
+59.56\%，比模型还略高。所以这一部分的结论是：端到端流程已经跑通，但当前信号很弱，不能说已经有可交易的预测能力。
+
+\subsection{6:35-7:30
+验证、局限和下一步}\label{ux9a8cux8bc1ux5c40ux9650ux548cux4e0bux4e00ux6b65}
+
+最后说一下验证和后续工作。全量审计检查了日频和分钟频表的维度、对齐、有限数、高开低收关系和空值填充，也检查了
+90600 行 K 线长表、因子和回测结果行数、每次是否持有 10 只股票，以及
+PyTorch 模型检查点。当前结果全部通过。
+
+下一步主要有三点。第一，回测中还要加入滑点、冲击成本、涨跌停和停牌限制，并进一步处理收盘信号同价成交的乐观假设。第二，因子可以增加行业和市值中性化。第三，LSTM
+需要扩展到多股票、更长时间，并用 walk-forward 方式做严格样本外验证。
+
+\subsection{7:30-7:50 结束}\label{ux7ed3ux675f}
+
+总结来说，这次作业已经完成从原始逐笔数据到因子、回测和深度学习的完整链路。最重要的经验是，结果不能只看收益高低，还必须检查信号在当时是否真的可知。这也是我把前视偏差对照和可交易修正版分开展示的原因。我的汇报就到这里，谢谢。
+
+\end{document}
