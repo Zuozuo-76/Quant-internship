@@ -103,7 +103,7 @@ def validate(root: Path) -> dict:
     lstm_metrics = pd.read_csv(root / "lstm" / "metrics.csv")
     walk_forward_metrics = pd.read_csv(root / "lstm" / "walk_forward_metrics.csv")
     factor_count = len(factor_summary)
-    if factor_count != 15 or len(backtest_summary) != 4 or len(lstm_metrics) != 1:
+    if factor_count != 18 or len(backtest_summary) != 4 or len(lstm_metrics) != 1:
         raise AssertionError("Analysis output row count mismatch")
     expected_modes = {"next_close_to_close", "next_open_to_open"}
     if set(backtest_summary["mode"]) != expected_modes:
@@ -241,6 +241,39 @@ def validate(root: Path) -> dict:
     if optimized_full_open["annual_return"].iloc[0] <= 0.25:
         raise AssertionError("Optimized next-open annual return did not exceed 25%")
 
+    low_risk_metrics = pd.read_csv(root / "backtest" / "low_risk_strategy_metrics.csv")
+    expected_risk_variants = {
+        "baseline_equal_weight_1x",
+        "vol_target_15_baseline_signal",
+        "vol_target_18_baseline_signal",
+        "invvol_target_15_legacy_ic",
+        "low_risk_target_15",
+        "low_risk_target_18",
+    }
+    required_risk_columns = {
+        "annual_return", "annual_volatility", "max_drawdown", "sharpe",
+        "calmar", "worst_5d_return", "worst_20d_return", "cvar_95",
+        "average_target_exposure",
+    }
+    if (
+        len(low_risk_metrics) != 18
+        or set(low_risk_metrics["risk_variant"]) != expected_risk_variants
+        or set(low_risk_metrics["sample"]) != {"research80", "holdout20", "full"}
+        or not required_risk_columns.issubset(low_risk_metrics.columns)
+    ):
+        raise AssertionError("Low-risk strategy comparison is incomplete")
+    risk_only = low_risk_metrics.loc[
+        ~low_risk_metrics["risk_variant"].eq("baseline_equal_weight_1x")
+    ]
+    if not risk_only["average_target_exposure"].between(0.5, 1.0).all():
+        raise AssertionError("Low-risk target exposure is outside its configured bounds")
+    low_risk_weights = pd.read_csv(root / "backtest" / "low_risk_factor_weights.csv")
+    ewma_weights = low_risk_weights.loc[
+        low_risk_weights["risk_variant"].str.startswith("low_risk")
+    ]
+    if ewma_weights["weight"].abs().dropna().gt(0.25 + 1e-12).any():
+        raise AssertionError("A low-risk factor weight exceeds the 25% cap")
+
     neutralization = json.loads(
         (root / "evaluation" / "neutralization_status.json").read_text(encoding="utf-8")
     )
@@ -345,6 +378,7 @@ def validate(root: Path) -> dict:
         root / "backtest" / "figures" / "optimized_strategy_nav_drawdown.png",
         root / "backtest" / "figures" / "optimized_strategy_risk_metrics.png",
         root / "backtest" / "figures" / "optimized_period_split.png",
+        root / "backtest" / "figures" / "low_risk_nav_drawdown.png",
         root / "lstm" / "figures" / "model_comparison.png",
         root / "lstm" / "figures" / "lstm_confusion_matrix.png",
         root / "lstm" / "figures" / "fold_model_metrics.png",
@@ -363,6 +397,7 @@ def validate(root: Path) -> dict:
         "minute_includes_1500": True,
         "no_trade_cells_checked": no_trade_checks,
         "factor_count": factor_count,
+        "low_risk_variants": sorted(expected_risk_variants),
         "backtest_variants": len(backtest_summary),
         "backtest_execution_delay": "t+1",
         "backtest_cost_model": "fee + slippage + square-root impact",

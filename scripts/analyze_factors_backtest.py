@@ -44,6 +44,9 @@ MAX_IMPACT_RATE = 0.02
 LIMIT_THRESHOLD = 0.095
 TOP_N = 10
 IC_LOOKBACK = 20
+IC_EWMA_SPAN = 60
+IC_EWMA_MIN_PERIODS = 20
+MAX_FACTOR_WEIGHT = 0.25
 NEW_FACTORS = {
     "avg_trade_size_surprise_20d",
     "price_volume_pressure_10d",
@@ -56,6 +59,9 @@ NEW_FACTORS = {
     "overnight_reversal_5d",
     "volume_price_trend_10d",
     "downside_risk_ratio_20d",
+    "downside_volatility_20d",
+    "idiosyncratic_volatility_20d",
+    "downside_beta_60d",
 }
 # New signals are deliberately shrunk because they have a shorter research
 # history than the four core factors.  The scale affects only the composite
@@ -72,6 +78,12 @@ EXTENDED_FACTORS = {
     "volume_price_trend_10d",
     "downside_risk_ratio_20d",
 }
+RISK_CONTROL_FACTORS = {
+    "downside_volatility_20d",
+    "idiosyncratic_volatility_20d",
+    "downside_beta_60d",
+}
+RISK_FACTOR_SIGNAL_SCALE = 0.10
 COST_SCENARIOS = {
     "optimistic": {
         "base_slippage_bps": 0.0,
@@ -146,7 +158,7 @@ ABLATION_STEPS = [
         ],
     ),
     (
-        "all_fifteen",
+        "all_eighteen",
         [
             "amount_mean_sd_log",
             "buy_sell_imbalance_surprise_10d",
@@ -163,6 +175,9 @@ ABLATION_STEPS = [
             "overnight_reversal_5d",
             "volume_price_trend_10d",
             "downside_risk_ratio_20d",
+            "downside_volatility_20d",
+            "idiosyncratic_volatility_20d",
+            "downside_beta_60d",
         ],
     ),
 ]
@@ -285,6 +300,31 @@ def compute_weights(
                 IC_LOOKBACK, min_periods=IC_LOOKBACK
             ).mean()
         )
+    elif strategy == "historical_60d_ewma_icir":
+        prior_ic = weights.groupby("factor")["raw_ic"].shift(1)
+        weights["ewma_ic"] = prior_ic.groupby(weights["factor"]).transform(
+            lambda series: series.ewm(
+                span=IC_EWMA_SPAN,
+                min_periods=IC_EWMA_MIN_PERIODS,
+                adjust=False,
+            ).mean()
+        )
+        weights["ewma_ic_std"] = prior_ic.groupby(weights["factor"]).transform(
+            lambda series: series.ewm(
+                span=IC_EWMA_SPAN,
+                min_periods=IC_EWMA_MIN_PERIODS,
+                adjust=False,
+            ).std()
+        )
+        weights["uncapped_weight"] = weights["ewma_ic"].div(
+            weights["ewma_ic_std"].replace(0, np.nan)
+        )
+        denominator = weights.groupby("date")["uncapped_weight"].transform(
+            lambda series: series.abs().sum(min_count=1)
+        )
+        weights["weight"] = weights["uncapped_weight"].div(
+            denominator.replace(0, np.nan)
+        ).clip(-MAX_FACTOR_WEIGHT, MAX_FACTOR_WEIGHT)
     else:
         raise ValueError(strategy)
     return weights
@@ -292,9 +332,98 @@ def compute_weights(
 
 def factor_signal_scale(factor: str) -> float:
     """Return the conservative composite-score multiplier for one factor."""
+    if factor in RISK_CONTROL_FACTORS:
+        return RISK_FACTOR_SIGNAL_SCALE
     if factor in EXTENDED_FACTORS:
         return EXTENDED_FACTOR_SIGNAL_SCALE
     return NEW_FACTOR_SIGNAL_SCALE if factor in NEW_FACTORS else 1.0
+
+
+def capped_normalize(
+    raw_weights: dict[str, float],
+    total: float = 1.0,
+    cap: float | None = None,
+) -> dict[str, float]:
+    """Normalize positive weights to ``total`` while respecting a hard cap."""
+    positive = {
+        str(code): float(value)
+        for code, value in raw_weights.items()
+        if np.isfinite(value) and value > 0
+    }
+    if not positive or total <= 0:
+        return {}
+    if cap is None:
+        scale = total / sum(positive.values())
+        return {code: value * scale for code, value in positive.items()}
+    if cap <= 0 or cap * len(positive) + 1e-12 < total:
+        raise ValueError("weight cap is infeasible for the selected portfolio")
+    remaining = dict(positive)
+    allocated: dict[str, float] = {}
+    remaining_total = float(total)
+    while remaining:
+        scale = remaining_total / sum(remaining.values())
+        breaches = {
+            code for code, value in remaining.items() if value * scale > cap
+        }
+        if not breaches:
+            allocated.update({
+                code: value * scale for code, value in remaining.items()
+            })
+            break
+        for code in sorted(breaches):
+            allocated[code] = cap
+            remaining_total -= cap
+            remaining.pop(code)
+    return allocated
+
+
+def score_inverse_volatility_allocations(
+    desired: pd.DataFrame,
+    volatility: pd.Series,
+    max_stock_weight: float = 0.04,
+) -> dict[str, float]:
+    """Allocate by positive composite score times inverse trailing volatility."""
+    frame = desired[["code", "signal"]].drop_duplicates("code").copy()
+    frame["code"] = frame["code"].astype(str)
+    frame["volatility"] = frame["code"].map(volatility)
+    valid_volatility = frame["volatility"].where(
+        np.isfinite(frame["volatility"]) & frame["volatility"].gt(0)
+    )
+    fallback = float(valid_volatility.median())
+    if not np.isfinite(fallback) or fallback <= 0:
+        fallback = 1.0
+    frame["volatility"] = valid_volatility.fillna(fallback).clip(lower=1e-6)
+    signal = pd.to_numeric(frame["signal"], errors="coerce")
+    center = float(signal.median())
+    floor = float((signal - center).abs().median())
+    if not np.isfinite(floor) or floor <= 0:
+        floor = 1.0
+    positive_score = (signal - signal.min()).fillna(0.0) + floor
+    raw = positive_score.div(frame["volatility"])
+    return capped_normalize(
+        dict(zip(frame["code"], raw, strict=True)),
+        total=1.0,
+        cap=max_stock_weight,
+    )
+
+
+def volatility_target_exposure(
+    prior_returns: list[float],
+    target_volatility: float,
+    lookback: int = 20,
+    minimum: float = 0.5,
+    maximum: float = 1.0,
+) -> tuple[float, float]:
+    """Return look-ahead-safe exposure from returns strictly before today."""
+    history = np.asarray(prior_returns[-lookback:], dtype=float)
+    realized = (
+        float(np.std(history, ddof=1) * math.sqrt(TRADING_DAYS))
+        if len(history) >= lookback
+        else math.nan
+    )
+    if not np.isfinite(realized) or realized <= 0:
+        return maximum, realized
+    return float(np.clip(target_volatility / realized, minimum, maximum)), realized
 
 
 def state_for_codes(
@@ -381,6 +510,8 @@ def build_constrained_target(
     current_weights: dict[str, float],
     state: pd.DataFrame,
     portfolio_size: int = TOP_N,
+    desired_allocations: dict[str, float] | None = None,
+    gross_exposure: float = 1.0,
 ) -> tuple[dict[str, float], float, dict[str, int]]:
     """Allocate after freezing positions that cannot be traded at the entry."""
     selected = list(dict.fromkeys(selected_codes))
@@ -395,7 +526,6 @@ def build_constrained_target(
         if not sellable or (code in selected_set and not buyable):
             fixed[code] = float(weight)
 
-    fixed_total = min(sum(fixed.values()), 1.0)
     if sum(fixed.values()) > 1.0 and fixed:
         scale = 1.0 / sum(fixed.values())
         fixed = {code: weight * scale for code, weight in fixed.items()}
@@ -406,11 +536,20 @@ def build_constrained_target(
         and code in state.index
         and bool(state.at[code, "buyable"])
     ]
-    available = max(0.0, 1.0 - sum(fixed.values()))
+    available = max(0.0, gross_exposure - sum(fixed.values()))
     target = dict(fixed)
     if candidates:
-        allocation = available / len(candidates)
-        target.update({code: allocation for code in candidates})
+        if desired_allocations is None:
+            allocation = available / len(candidates)
+            target.update({code: allocation for code in candidates})
+        else:
+            raw = {
+                code: max(float(desired_allocations.get(code, 0.0)), 0.0)
+                for code in candidates
+            }
+            if sum(raw.values()) <= 0:
+                raw = {code: 1.0 for code in candidates}
+            target.update(capped_normalize(raw, total=available))
     cash_weight = max(0.0, 1.0 - sum(target.values()))
 
     blocked_buys = sum(
@@ -513,6 +652,12 @@ def simulate(
     portfolio_size: int = TOP_N,
     rebalance_interval: int = 1,
     buffer_exit_rank: int | None = None,
+    allocation_method: str = "equal",
+    stock_volatility: pd.DataFrame | None = None,
+    max_stock_weight: float | None = None,
+    target_volatility: float | None = None,
+    minimum_exposure: float = 0.5,
+    maximum_exposure: float = 1.0,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     if portfolio_size < 1:
         raise ValueError("portfolio_size must be at least one")
@@ -520,6 +665,10 @@ def simulate(
         raise ValueError("rebalance_interval must be at least one")
     if buffer_exit_rank is not None and buffer_exit_rank < portfolio_size:
         raise ValueError("buffer_exit_rank cannot be smaller than the portfolio")
+    if allocation_method not in {"equal", "score_inverse_volatility"}:
+        raise ValueError(f"unsupported allocation_method: {allocation_method}")
+    if allocation_method == "score_inverse_volatility" and stock_volatility is None:
+        raise ValueError("stock_volatility is required for inverse-volatility weights")
     weights = compute_weights(panel, returns, strategy)
     components = panel[["factor", "date", "code", "factor_z"]].merge(
         weights[["factor", "date", "weight"]],
@@ -556,6 +705,7 @@ def simulate(
     results = []
     holdings = []
     trade_parts = []
+    prior_gross_returns: list[float] = []
     for period_number, (date, desired) in enumerate(
         ranked.groupby("date", sort=True)
     ):
@@ -570,12 +720,38 @@ def simulate(
         )
         relevant_codes = set(desired_codes) | set(current_weights)
         state = state_for_codes(state_panels, date, relevant_codes)
+        exposure = sum(current_weights.values()) if current_weights else maximum_exposure
+        trailing_volatility = math.nan
         if rebalanced:
+            if target_volatility is not None:
+                exposure, trailing_volatility = volatility_target_exposure(
+                    prior_gross_returns,
+                    target_volatility,
+                    minimum=minimum_exposure,
+                    maximum=maximum_exposure,
+                )
+            desired_allocations = None
+            if allocation_method == "score_inverse_volatility":
+                day_volatility = (
+                    stock_volatility.loc[date]
+                    if date in stock_volatility.index
+                    else pd.Series(dtype=float)
+                )
+                allocation_rows = desired.loc[
+                    desired["code"].astype(str).isin(desired_codes)
+                ]
+                desired_allocations = score_inverse_volatility_allocations(
+                    allocation_rows,
+                    day_volatility,
+                    max_stock_weight=max_stock_weight or 1.0,
+                )
             target_weights, cash_weight, diagnostics = build_constrained_target(
                 desired_codes,
                 current_weights,
                 state,
                 portfolio_size=portfolio_size,
+                desired_allocations=desired_allocations,
+                gross_exposure=exposure,
             )
             costs, trades = estimate_trade_costs(
                 nav,
@@ -643,6 +819,9 @@ def simulate(
             **costs,
             **diagnostics,
             "cash_weight": cash_weight,
+            "target_exposure": exposure,
+            "trailing_annual_volatility": trailing_volatility,
+            "allocation_method": allocation_method,
             "net_return": net_return,
             "active_return": active_return,
             "nav": nav_end,
@@ -665,6 +844,8 @@ def simulate(
                 "code": code,
                 "signal": signal_map.get(code, np.nan),
                 "target_weight": target_weight,
+                "target_exposure": exposure,
+                "allocation_method": allocation_method,
                 "suspended": bool(row["suspended"]),
                 "limit_up": bool(row["limit_up"]),
                 "limit_down": bool(row["limit_down"]),
@@ -687,6 +868,7 @@ def simulate(
             if weight > 0 and denominator > 0
         }
         nav = nav_end
+        prior_gross_returns.append(gross_return)
 
     return (
         pd.DataFrame(results),
@@ -831,6 +1013,231 @@ def build_optimized_strategy_metrics(
         ):
             rows.append(summarize_period_slice(sample_rows, sample))
     return pd.DataFrame(rows), optimized
+
+
+def tail_risk_metrics(returns: pd.Series) -> dict[str, float]:
+    """Return Calmar, worst rolling returns, and historical CVaR 95%."""
+    values = pd.Series(returns, dtype=float).dropna()
+    nav = np.r_[1.0, (1 + values).cumprod().to_numpy(float)]
+    annual_return = (nav[-1] ** (TRADING_DAYS / len(values)) - 1) if len(values) else np.nan
+    drawdown = max_drawdown(nav)
+    threshold = values.quantile(0.05) if len(values) else np.nan
+    tail = values.loc[values.le(threshold)] if np.isfinite(threshold) else values.iloc[0:0]
+    return {
+        "calmar": annual_return / abs(drawdown) if drawdown < 0 else np.nan,
+        "worst_5d_return": float((1 + values).rolling(5).apply(np.prod, raw=True).min() - 1),
+        "worst_20d_return": float((1 + values).rolling(20).apply(np.prod, raw=True).min() - 1),
+        "cvar_95": float(tail.mean()) if len(tail) else np.nan,
+    }
+
+
+def run_low_risk_strategies(
+    panel: pd.DataFrame,
+    processed: Path,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Compare the original 1x construction with two risk-target variants."""
+    mode = "next_open_to_open"
+    returns, trade_dates, state = returns_and_market_state(processed, mode)
+    close = load_wide(processed, "close")
+    stock_volatility = close.pct_change(fill_method=None).rolling(
+        20, min_periods=20
+    ).std() * math.sqrt(TRADING_DAYS)
+    policy = TURNOVER_POLICIES[RECOMMENDED_TURNOVER_POLICY]
+    variants = {
+        "baseline_equal_weight_1x": {
+            "strategy": "historical_20d_ic",
+            "include_risk_factors": False,
+            "parameters": {},
+        },
+        "vol_target_15_baseline_signal": {
+            "strategy": "historical_20d_ic",
+            "include_risk_factors": False,
+            "parameters": {"target_volatility": 0.15},
+        },
+        "vol_target_18_baseline_signal": {
+            "strategy": "historical_20d_ic",
+            "include_risk_factors": False,
+            "parameters": {"target_volatility": 0.18},
+        },
+        "invvol_target_15_legacy_ic": {
+            "strategy": "historical_20d_ic",
+            "include_risk_factors": False,
+            "parameters": {
+                "allocation_method": "score_inverse_volatility",
+                "stock_volatility": stock_volatility,
+                "max_stock_weight": 0.04,
+                "target_volatility": 0.15,
+            },
+        },
+        "low_risk_target_15": {
+            "strategy": "historical_60d_ewma_icir",
+            "include_risk_factors": True,
+            "parameters": {
+                "allocation_method": "score_inverse_volatility",
+                "stock_volatility": stock_volatility,
+                "max_stock_weight": 0.04,
+                "target_volatility": 0.15,
+            },
+        },
+        "low_risk_target_18": {
+            "strategy": "historical_60d_ewma_icir",
+            "include_risk_factors": True,
+            "parameters": {
+                "allocation_method": "score_inverse_volatility",
+                "stock_volatility": stock_volatility,
+                "max_stock_weight": 0.04,
+                "target_volatility": 0.18,
+            },
+        },
+    }
+    result_parts = []
+    holding_parts = []
+    weight_parts = []
+    metric_rows = []
+    for variant, specification in variants.items():
+        variant_panel = (
+            panel
+            if specification["include_risk_factors"]
+            else panel.loc[~panel["factor"].isin(RISK_CONTROL_FACTORS)]
+        )
+        result, holdings, weights, _trades = simulate(
+            variant_panel,
+            returns,
+            trade_dates,
+            state,
+            specification["strategy"],
+            mode,
+            **policy,
+            **specification["parameters"],
+        )
+        result.insert(0, "risk_variant", variant)
+        result["turnover_policy"] = variant
+        holdings.insert(0, "risk_variant", variant)
+        weights.insert(0, "risk_variant", variant)
+        result_parts.append(result)
+        holding_parts.append(holdings)
+        weight_parts.append(weights)
+        split = int(len(result) * 0.8)
+        for sample, sample_rows in (
+            ("research80", result.iloc[:split]),
+            ("holdout20", result.iloc[split:]),
+            ("full", result),
+        ):
+            metrics = summarize_period_slice(sample_rows, sample)
+            metrics.update(tail_risk_metrics(sample_rows["net_return"]))
+            metrics["risk_variant"] = variant
+            metrics["average_target_exposure"] = float(
+                sample_rows["target_exposure"].mean()
+            )
+            metric_rows.append(metrics)
+    return (
+        pd.DataFrame(metric_rows),
+        pd.concat(result_parts, ignore_index=True),
+        pd.concat(holding_parts, ignore_index=True),
+        pd.concat(weight_parts, ignore_index=True),
+    )
+
+
+def write_low_risk_report(
+    metrics: pd.DataFrame,
+    results: pd.DataFrame,
+    report_output: Path,
+    figure_output: Path,
+) -> None:
+    """Write a concise risk comparison report and NAV/drawdown figure."""
+    figure_output.mkdir(parents=True, exist_ok=True)
+    figure, axes = plt.subplots(2, 1, figsize=(10, 8), sharex=True)
+    for variant, group in results.groupby("risk_variant", sort=False):
+        group = group.sort_values("signal_date")
+        nav = (1 + group["net_return"]).cumprod()
+        drawdown = nav / nav.cummax() - 1
+        axes[0].plot(group["signal_date"], nav, label=variant)
+        axes[1].plot(group["signal_date"], drawdown * 100, label=variant)
+    axes[0].set_title("Low-risk strategy comparison: next-open execution")
+    axes[0].set_ylabel("Normalized NAV")
+    axes[0].legend(fontsize=8)
+    axes[1].set_ylabel("Drawdown (%)")
+    axes[1].axhline(0, color="0.25", linewidth=0.8)
+    axes[1].tick_params(axis="x", labelrotation=30, labelsize=8)
+    figure.tight_layout()
+    figure.savefig(figure_output / "low_risk_nav_drawdown.png", dpi=180)
+    plt.close(figure)
+
+    def pct(value: float) -> str:
+        return f"{value:.2%}" if np.isfinite(value) else "NA"
+
+    lines = [
+        "# 降低波动与回撤策略报告",
+        "",
+        "## 实施内容",
+        "",
+        "- 新增 20 日下行波动率、20 日特质波动率和 60 日下行 Beta，方向统一为数值越高风险越低。",
+        "- 因子权重使用仅含昨日及更早 IC 的 60 日 EWMA ICIR，单因子绝对权重上限 25%。",
+        "- Top30 风险加权版本使用正向综合得分乘逆 20 日波动率分配；正常可交易的新目标单股上限 4%，涨跌停或停牌冻结仓位可能暂时超过该值。",
+        "- 总敞口使用过去 20 个已实现组合收益估计波动率，目标分别为 15% 和 18%，敞口限制在 0.5 至 1.0。",
+        "- 所有版本均为每 5 日调仓、Top60 退出缓冲、次日开盘执行，并计入原有费用、滑点与冲击成本。",
+        "",
+        "## 结果对比",
+        "",
+        "| 样本 | 版本 | 年化收益 | 年化波动 | 最大回撤 | Sharpe | Calmar | 最差5日 | 最差20日 | CVaR95 | 平均敞口 |",
+        "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+    ]
+    order = {"research80": 0, "holdout20": 1, "full": 2}
+    ordered = metrics.assign(_order=metrics["sample"].map(order)).sort_values(
+        ["_order", "risk_variant"]
+    )
+    for row in ordered.itertuples(index=False):
+        lines.append(
+            f"| {row.sample} | {row.risk_variant} | {pct(row.annual_return)} | "
+            f"{pct(row.annual_volatility)} | {pct(row.max_drawdown)} | "
+            f"{row.sharpe:.3f} | {row.calmar:.3f} | "
+            f"{pct(row.worst_5d_return)} | {pct(row.worst_20d_return)} | "
+            f"{pct(row.cvar_95)} | {pct(row.average_target_exposure)} |"
+        )
+    target_metrics_path = report_output.parent / "backtest" / "target_30_metrics.csv"
+    fixed_comparison: list[str] = []
+    if target_metrics_path.exists():
+        fixed_metrics = pd.read_csv(target_metrics_path)
+        fixed_full = fixed_metrics.loc[fixed_metrics["sample"].eq("full")]
+        fixed_holdout = fixed_metrics.loc[fixed_metrics["sample"].eq("holdout20")]
+        candidate_full = metrics.loc[
+            metrics["sample"].eq("full")
+            & metrics["risk_variant"].eq("vol_target_15_baseline_signal")
+        ]
+        candidate_holdout = metrics.loc[
+            metrics["sample"].eq("holdout20")
+            & metrics["risk_variant"].eq("vol_target_15_baseline_signal")
+        ]
+        if all(len(table) == 1 for table in (
+            fixed_full, fixed_holdout, candidate_full, candidate_holdout
+        )):
+            ff, fh = fixed_full.iloc[0], fixed_holdout.iloc[0]
+            cf, ch = candidate_full.iloc[0], candidate_holdout.iloc[0]
+            fixed_comparison = [
+                "",
+                "## 与固定杠杆版本比较",
+                "",
+                f"当前可复现的固定杠杆版本为 {ff.leverage:.2f} 倍。15% 波动率目标保留原信号，只调整总敞口；完整样本年化收益由 {pct(ff.annual_return)} 降至 {pct(cf.annual_return)}，但年化波动由 {pct(ff.annual_volatility)} 降至 {pct(cf.annual_volatility)}，最大回撤由 {pct(ff.max_drawdown)} 改善至 {pct(cf.max_drawdown)}。",
+                "",
+                f"后 20% 留出期中，年化收益由 {pct(fh.annual_return)} 改善为 {pct(ch.annual_return)}，年化波动由 {pct(fh.annual_volatility)} 降至 {pct(ch.annual_volatility)}，最大回撤由 {pct(fh.max_drawdown)} 改善至 {pct(ch.max_drawdown)}。因此本轮推荐采用 `vol_target_15_baseline_signal`，不采用完整更换因子排序的 `low_risk_target_*`。",
+            ]
+    lines += [
+        *fixed_comparison,
+        "",
+        "![低风险版本净值与回撤](../backtest/figures/low_risk_nav_drawdown.png)",
+        "",
+        "## 拆解原则",
+        "",
+        "`vol_target_*_baseline_signal` 只改变总敞口；`invvol_target_15_legacy_ic` 再加入个股风险加权；`low_risk_target_*` 才同时启用三项新增风险因子和 60 日 EWMA ICIR。这样可以识别回撤变化究竟来自风险预算还是信号排序。若完整组合在留出期回撤恶化，应视为未通过，不因样本内结果较好而采用。",
+        "",
+        "## 解释边界",
+        "",
+        "研究期和完整样本仍参与了方法选择；留出期只是固定的后 20% 检查，不是重新滚动训练后的严格样本外证明。是否降低风险应优先看留出期的波动、回撤、CVaR 和最差窗口，同时确认收益牺牲是否可接受。",
+    ]
+    report_output.mkdir(parents=True, exist_ok=True)
+    (report_output / "降低波动与回撤策略报告.md").write_text(
+        "\n".join(lines) + "\n", encoding="utf-8"
+    )
 
 
 def composite_signal_statistics(
@@ -1289,8 +1696,12 @@ def run_backtests(
     panel: pd.DataFrame,
     processed: Path,
     output: Path,
+    reports: Path,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     output.mkdir(parents=True, exist_ok=True)
+    baseline_panel = panel.loc[
+        ~panel["factor"].isin(RISK_CONTROL_FACTORS)
+    ].copy()
     results_parts = []
     holding_parts = []
     weight_parts = []
@@ -1299,7 +1710,7 @@ def run_backtests(
         returns, trade_dates, state = returns_and_market_state(processed, mode)
         for strategy in ("leaky_same_day_ic", "historical_20d_ic"):
             results, holdings, weights, trades = simulate(
-                panel, returns, trade_dates, state, strategy, mode
+                baseline_panel, returns, trade_dates, state, strategy, mode
             )
             results_parts.append(results)
             holding_parts.append(holdings)
@@ -1314,16 +1725,28 @@ def run_backtests(
     weights = pd.concat(weight_parts, ignore_index=True)
     trades = pd.concat(trade_parts, ignore_index=True)
     summary = summarize_backtest_results(results)
-    sensitivity = run_cost_sensitivity(panel, processed)
+    sensitivity = run_cost_sensitivity(baseline_panel, processed)
     ablation = run_factor_ablation(panel, processed)
     (
         turnover_summary,
         turnover_results,
         turnover_holdings,
         turnover_trades,
-    ) = run_turnover_control(panel, processed)
+    ) = run_turnover_control(baseline_panel, processed)
     optimized_metrics, optimized_results = build_optimized_strategy_metrics(
         turnover_results
+    )
+    (
+        low_risk_metrics,
+        low_risk_results,
+        low_risk_holdings,
+        low_risk_weights,
+    ) = run_low_risk_strategies(panel, processed)
+    write_low_risk_report(
+        low_risk_metrics,
+        low_risk_results,
+        reports,
+        output / "figures",
     )
     lookahead = summary.copy()
     lookahead.insert(
@@ -1379,6 +1802,10 @@ def run_backtests(
         turnover_trades,
         optimized_metrics,
         optimized_results,
+        low_risk_metrics,
+        low_risk_results,
+        low_risk_holdings,
+        low_risk_weights,
     ):
         for column in (
             "signal_date",
@@ -1412,6 +1839,12 @@ def run_backtests(
     optimized_results.to_csv(
         output / "optimized_strategy_results.csv", index=False
     )
+    low_risk_metrics.to_csv(output / "low_risk_strategy_metrics.csv", index=False)
+    low_risk_results.to_csv(output / "low_risk_strategy_results.csv", index=False)
+    low_risk_holdings.to_csv(
+        output / "low_risk_strategy_holdings.csv", index=False, quoting=1
+    )
+    low_risk_weights.to_csv(output / "low_risk_factor_weights.csv", index=False)
     assumptions = {
         "signal_execution_delay": "signal at t, trade at t+1 open or close",
         "sell_fee": SELL_FEE,
@@ -1430,6 +1863,14 @@ def run_backtests(
         "new_factor_signal_scale": NEW_FACTOR_SIGNAL_SCALE,
         "extended_factors": sorted(EXTENDED_FACTORS),
         "extended_factor_signal_scale": EXTENDED_FACTOR_SIGNAL_SCALE,
+        "risk_control_factors": sorted(RISK_CONTROL_FACTORS),
+        "risk_factor_signal_scale": RISK_FACTOR_SIGNAL_SCALE,
+        "low_risk_ic_weighting": {
+            "method": "60-day EWMA ICIR using raw IC through t-1",
+            "span": IC_EWMA_SPAN,
+            "min_periods": IC_EWMA_MIN_PERIODS,
+            "max_absolute_factor_weight": MAX_FACTOR_WEIGHT,
+        },
         "suspension_rule": "entry-day volume <= 0 or amount <= 0 blocks trading",
         "limit_rule": (
             "one-price day and entry/previous-close move >= 9.5%; "
@@ -1651,7 +2092,10 @@ def main() -> None:
     )
     factor_summary = evaluate(panel, args.evaluation.resolve())
     backtest_summary, sensitivity, ablation, turnover_summary = run_backtests(
-        panel, args.processed.resolve(), args.backtest.resolve()
+        panel,
+        args.processed.resolve(),
+        args.backtest.resolve(),
+        args.reports.resolve(),
     )
     write_analysis_report(
         factor_summary,

@@ -52,11 +52,45 @@
   },
   "recommended_turnover_policy": "five_day_buffer60_top30",
   "new_factors": [
+    "amihud_illiquidity_20d",
     "avg_trade_size_surprise_20d",
+    "close_location_10d",
+    "downside_beta_60d",
+    "downside_risk_ratio_20d",
+    "downside_volatility_20d",
     "gap_intraday_divergence_5d",
-    "price_volume_pressure_10d"
+    "idiosyncratic_volatility_20d",
+    "momentum_20d",
+    "overnight_reversal_5d",
+    "price_volume_pressure_10d",
+    "realized_volatility_20d",
+    "volume_acceleration_5_20",
+    "volume_price_trend_10d"
   ],
   "new_factor_signal_scale": 0.1,
+  "extended_factors": [
+    "amihud_illiquidity_20d",
+    "close_location_10d",
+    "downside_risk_ratio_20d",
+    "momentum_20d",
+    "overnight_reversal_5d",
+    "realized_volatility_20d",
+    "volume_acceleration_5_20",
+    "volume_price_trend_10d"
+  ],
+  "extended_factor_signal_scale": 0.02,
+  "risk_control_factors": [
+    "downside_beta_60d",
+    "downside_volatility_20d",
+    "idiosyncratic_volatility_20d"
+  ],
+  "risk_factor_signal_scale": 0.1,
+  "low_risk_ic_weighting": {
+    "method": "60-day EWMA ICIR using raw IC through t-1",
+    "span": 60,
+    "min_periods": 20,
+    "max_absolute_factor_weight": 0.25
+  },
   "suspension_rule": "entry-day volume <= 0 or amount <= 0 blocks trading",
   "limit_rule": "one-price day and entry/previous-close move >= 9.5%; limit-up blocks buys, limit-down blocks sells"
 }

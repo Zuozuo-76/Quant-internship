@@ -6,3 +6,14 @@ reversal_5d,5日反转,-(close / close_lag_5d - 1),自建因子
 avg_trade_size_surprise_20d,20日单笔成交规模异常,"zscore_20d(log(1 + amount / max(trade_count, 1)))",新增因子
 price_volume_pressure_10d,10日价量压力,mean_10d(return_1d * diff(log(1 + volume))),新增因子
 gap_intraday_divergence_5d,5日隔夜-日内收益背离,mean_5d((open / close_lag_1d - 1) - (close / open - 1)),新增因子
+momentum_20d,20日价格动量,close / close_lag_20d - 1,扩展因子
+realized_volatility_20d,20日已实现波动率,sd_20d(return_1d),扩展因子
+amihud_illiquidity_20d,20日Amihud非流动性,mean_20d(abs(return_1d) / amount),扩展因子
+volume_acceleration_5_20,5比20日成交量加速度,mean_5d(volume) / mean_20d(volume) - 1,扩展因子
+close_location_10d,10日收盘位置,mean_10d((2*close-high-low)/(high-low)),扩展因子
+overnight_reversal_5d,5日隔夜反转,-mean_5d(open / close_lag_1d - 1),扩展因子
+volume_price_trend_10d,10日量价趋势,sum_10d(sign(return_1d)*volume) / sum_10d(volume),扩展因子
+downside_risk_ratio_20d,20日下行波动占比,"sqrt(mean_20d(min(return_1d,0)^2) / mean_20d(return_1d^2))",扩展因子
+downside_volatility_20d,20日下行波动率,"-sqrt(mean_20d(min(return_1d,0)^2))",风险控制因子
+idiosyncratic_volatility_20d,20日特质波动率,-sd_20d(stock_return-alpha-beta*equal_weight_market_return),风险控制因子
+downside_beta_60d,60日下行Beta,"-cov_60d(stock_return,market_return | market_return<0)/var_60d(market_return | market_return<0)",风险控制因子

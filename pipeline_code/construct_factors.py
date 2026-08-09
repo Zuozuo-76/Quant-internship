@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Construct fifteen daily factors from processed field tables and save CSV files."""
+"""Construct eighteen daily factors from processed field tables and save CSV files."""
 
 from __future__ import annotations
 
@@ -90,6 +90,21 @@ FACTOR_META = {
         "formula": "sqrt(mean_20d(min(return_1d,0)^2) / mean_20d(return_1d^2))",
         "kind": "扩展因子",
     },
+    "downside_volatility_20d": {
+        "name_zh": "20日下行波动率",
+        "formula": "-sqrt(mean_20d(min(return_1d,0)^2))",
+        "kind": "风险控制因子",
+    },
+    "idiosyncratic_volatility_20d": {
+        "name_zh": "20日特质波动率",
+        "formula": "-sd_20d(stock_return-alpha-beta*equal_weight_market_return)",
+        "kind": "风险控制因子",
+    },
+    "downside_beta_60d": {
+        "name_zh": "60日下行Beta",
+        "formula": "-cov_60d(stock_return,market_return | market_return<0)/var_60d(market_return | market_return<0)",
+        "kind": "风险控制因子",
+    },
 }
 
 
@@ -154,6 +169,23 @@ def build_factors(processed: Path, output: Path) -> dict[str, pd.DataFrame]:
     signed_volume = np.sign(daily_return) * volume
     downside_squared_return = daily_return.clip(upper=0).pow(2)
     total_squared_return = daily_return.pow(2)
+    market_return = daily_return.mean(axis=1, skipna=True)
+    market_variance_20d = market_return.rolling(20, min_periods=20).var()
+    stock_variance_20d = daily_return.rolling(20, min_periods=20).var()
+    stock_market_covariance_20d = daily_return.rolling(
+        20, min_periods=20
+    ).cov(market_return)
+    residual_variance_20d = stock_variance_20d - stock_market_covariance_20d.pow(
+        2
+    ).div(market_variance_20d.replace(0, np.nan), axis=0)
+    market_down = market_return.where(market_return.lt(0))
+    stock_on_market_down = daily_return.where(market_return.lt(0), axis=0)
+    downside_market_variance_60d = market_down.rolling(
+        60, min_periods=20
+    ).var()
+    downside_covariance_60d = stock_on_market_down.rolling(
+        60, min_periods=20
+    ).cov(market_down)
     factors = {
         "amount_mean_sd_log": pd.DataFrame(
             amount_factor_values, index=amount.index, columns=amount.columns
@@ -201,6 +233,15 @@ def build_factors(processed: Path, output: Path) -> dict[str, pd.DataFrame]:
                 .mean()
                 .replace(0, np.nan)
             )
+        ),
+        "downside_volatility_20d": -np.sqrt(
+            downside_squared_return.rolling(20, min_periods=20).mean()
+        ),
+        "idiosyncratic_volatility_20d": -np.sqrt(
+            residual_variance_20d.clip(lower=0)
+        ),
+        "downside_beta_60d": -downside_covariance_60d.div(
+            downside_market_variance_60d.replace(0, np.nan), axis=0
         ),
     }
 

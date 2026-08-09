@@ -14,10 +14,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "pipeline_code"))
 
 from analyze_factors_backtest import (
     build_constrained_target,
+    capped_normalize,
     equal_weight_benchmark_return,
     estimate_trade_costs,
     factor_signal_scale,
+    score_inverse_volatility_allocations,
     select_buffered_codes,
+    volatility_target_exposure,
 )
 from import_trade_data import summarize_stock, trading_minutes
 from build_kline_csv import FIELDS, build_daily_kline
@@ -149,13 +152,16 @@ class LSTMTests(unittest.TestCase):
 
 
 class RiskAndExecutionTests(unittest.TestCase):
-    def test_factor_catalog_contains_fifteen_unique_factors(self):
-        self.assertEqual(len(FACTOR_META), 15)
-        self.assertEqual(len(set(FACTOR_META)), 15)
+    def test_factor_catalog_contains_eighteen_unique_factors(self):
+        self.assertEqual(len(FACTOR_META), 18)
+        self.assertEqual(len(set(FACTOR_META)), 18)
         self.assertTrue({
             "momentum_20d",
             "amihud_illiquidity_20d",
             "downside_risk_ratio_20d",
+            "downside_volatility_20d",
+            "idiosyncratic_volatility_20d",
+            "downside_beta_60d",
         }.issubset(FACTOR_META))
 
     def test_exploratory_factor_signal_scale_is_conservative(self):
@@ -164,6 +170,33 @@ class RiskAndExecutionTests(unittest.TestCase):
             factor_signal_scale("avg_trade_size_surprise_20d"), 0.10
         )
         self.assertEqual(factor_signal_scale("momentum_20d"), 0.02)
+        self.assertEqual(factor_signal_scale("downside_volatility_20d"), 0.10)
+
+    def test_capped_inverse_volatility_weights_are_diversified(self):
+        desired = pd.DataFrame({
+            "code": [f"S{index:02d}" for index in range(30)],
+            "signal": np.linspace(3.0, 0.1, 30),
+        })
+        volatility = pd.Series(
+            np.linspace(0.1, 0.4, 30), index=desired["code"]
+        )
+        weights = score_inverse_volatility_allocations(desired, volatility)
+        self.assertAlmostEqual(sum(weights.values()), 1.0)
+        self.assertLessEqual(max(weights.values()), 0.04 + 1e-12)
+        self.assertGreater(weights["S00"], weights["S29"])
+
+    def test_volatility_target_uses_only_prior_returns_and_respects_bounds(self):
+        quiet = [0.001, -0.001] * 10
+        exposure, realized = volatility_target_exposure(quiet, 0.15)
+        self.assertEqual(exposure, 1.0)
+        self.assertGreater(realized, 0)
+        stressed = [0.03, -0.03] * 10
+        exposure, _ = volatility_target_exposure(stressed, 0.15)
+        self.assertEqual(exposure, 0.5)
+
+    def test_capped_normalize_rejects_infeasible_cap(self):
+        with self.assertRaises(ValueError):
+            capped_normalize({"A": 1.0, "B": 1.0}, cap=0.4)
 
     def test_rank_buffer_keeps_existing_names_inside_exit_band(self):
         ranked = pd.DataFrame({
