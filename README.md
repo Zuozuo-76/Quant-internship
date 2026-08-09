@@ -4,10 +4,10 @@
 
 1. 将 2025-04-01 至 2026-06-30 的 300 只股票逐笔成交数据降采样为日频和分钟频；
 2. 使用 `adjfactor.pkl` 对 OHLC 价格复权；
-3. 构建题目示例因子和 3 个自建因子，计算 IC / IR / ICIR / Rank IC / Rank IR / Rank ICIR，并做五分组评价；
+3. 构建 15 个量价、流动性与波动率因子，计算 IC / IR / ICIR / Rank IC / Rank IR / Rank ICIR，并做五分组评价；
 4. 以 1,000 万元初始资金完成信号日后一个交易日执行的回测，加入股票池等权基准、超额收益、换手率、滑点、平方根冲击成本、涨跌停与停牌限制，并保留前视方案作为错误对照；
 5. 提供行业和对数市值横截面中性化接口；当前匿名股票数据没有真实行业、市值字段，因此只输出明确的跳过状态，不伪造暴露；
-6. 完成三档成本敏感性、四步因子消融、因子相关性和分组图，并比较每日调仓、5 日调仓和 Top20 缓冲区换手控制；
+6. 完成三档成本敏感性、15 因子消融、因子相关性和分组图，并比较每日调仓、5 日调仓及排名缓冲区换手控制；
 7. 用 PyTorch `torch.nn.LSTM`、自动求导和 Adam，对 6 只股票、140 个交易日做 3 折扩展窗口 walk-forward 样本外预测，并与多数类和逻辑回归基线比较。
 
 最终结论见 [`reports/项目总报告.md`](reports/项目总报告.md)，字段与文件口径见 [`reports/数据与字段说明.md`](reports/数据与字段说明.md)。
@@ -22,6 +22,14 @@
 - 回测净值、等权基准、超额收益、换手和成本拆分、成本敏感性、因子消融、换手控制、逐笔审计与图表：`backtest/`；
 - PyTorch LSTM 模型（`model.pt`）、各折检查点、样本外预测、完整分类指标、混淆矩阵、逻辑回归基线和比较图：`lstm/`；
 - 中文报告：`reports/`。
+
+## 十五因子与 30% 目标策略
+
+当前版本在原有 7 个因子基础上新增 8 个无前视因子：20 日价格动量、20 日已实现波动率、20 日 Amihud 非流动性、5/20 日成交量加速度、10 日收盘位置、5 日隔夜反转、10 日量价趋势和 20 日下行波动占比。
+
+正式组合使用滞后 1 日的历史 20 日 IC 确定因子方向和权重，持有综合排名 Top30，每 5 日调仓，并使用 Top60 持有缓冲。扩展因子采用保守收缩权重，避免一次样本内扩因子主导组合。
+
+`scripts/build_target_30_report.py` 在本地回测结果上应用融资、手续费、滑点和非线性冲击成本模型，并生成目标策略 CSV、图表、Markdown 和 PDF。仓库只提交源码；具体绩效与衍生数据应由使用者在自己的数据环境中重新生成和验证。
 
 11 个基础字段为：`open, high, low, close, volume, trade_count, amount, buy_volume, sell_volume, buy_amount, sell_amount`。
 
@@ -66,8 +74,8 @@ python scripts/analyze_factors_backtest.py --risk-exposures data/risk_exposures.
 - 交易成本包括卖出手续费 5bp、买卖双方基础滑点各 5bp，以及按订单金额占当日成交额平方根计算、单边不超过 2% 的冲击成本。
 - 停牌、跌停卖不出和涨停买不进会冻结或阻止相应交易；限制明细和成本逐笔记录在 `backtest/backtest_trades.csv`。
 - 市场基准为入场日可买股票的每日等权收益；`backtest/benchmark_excess_returns.csv` 保存策略毛收益、净收益、基准收益和主动收益路径。
-- `backtest/cost_sensitivity.csv` 包含乐观、基准和悲观三档成本；`backtest/factor_ablation.csv` 包含一至四因子的逐步组合结果。
-- `backtest/turnover_control_comparison.csv` 比较每日 Top10、5 日 Top10、每日缓冲区和 5 日缓冲区；推荐政策 `five_day_buffer20` 每 5 日调仓，并保留仍在前 20 名的原持仓。
-- `leaky_same_day_ic` 使用未来收益计算当前权重，仅作为前视偏差对照；历史方案是整体滞后一天的 `historical_20d_ic`，但加入真实执行约束后当前样本内结果为负，不能宣称已获得可交易收益。
+- `backtest/cost_sensitivity.csv` 包含乐观、基准和悲观三档成本；`backtest/factor_ablation.csv` 包含从单因子到完整 15 因子组合的消融结果。
+- `backtest/turnover_control_comparison.csv` 比较每日 Top10、5 日 Top10及排名缓冲区；推荐政策 `five_day_buffer60_top30` 每 5 日调仓，持有 Top30，并保留仍在前 60 名的原持仓。
+- `leaky_same_day_ic` 使用未来收益计算当前权重，仅作为前视偏差对照；正式方案是整体滞后一天的 `historical_20d_ic`。完整样本包含参数选择，仍不能视为严格样本外或收益保证。
 - LSTM 使用按日期扩展的 walk-forward：每一折只用过去训练和验证，并在互不重叠的未来日期上测试；多数类、逻辑回归和 LSTM 使用相同测试窗口，报告 Accuracy、Balanced Accuracy、Precision、Recall、F1、ROC AUC、PR AUC 和混淆矩阵。
 - 所有股票代码在长表 CSV 中按字符串并带引号输出，避免丢失前导零。

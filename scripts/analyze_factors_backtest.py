@@ -48,11 +48,30 @@ NEW_FACTORS = {
     "avg_trade_size_surprise_20d",
     "price_volume_pressure_10d",
     "gap_intraday_divergence_5d",
+    "momentum_20d",
+    "realized_volatility_20d",
+    "amihud_illiquidity_20d",
+    "volume_acceleration_5_20",
+    "close_location_10d",
+    "overnight_reversal_5d",
+    "volume_price_trend_10d",
+    "downside_risk_ratio_20d",
 }
 # New signals are deliberately shrunk because they have a shorter research
 # history than the four core factors.  The scale affects only the composite
 # score; single-factor IC and quantile evaluation remains fully standardized.
 NEW_FACTOR_SIGNAL_SCALE = 0.10
+EXTENDED_FACTOR_SIGNAL_SCALE = 0.02
+EXTENDED_FACTORS = {
+    "momentum_20d",
+    "realized_volatility_20d",
+    "amihud_illiquidity_20d",
+    "volume_acceleration_5_20",
+    "close_location_10d",
+    "overnight_reversal_5d",
+    "volume_price_trend_10d",
+    "downside_risk_ratio_20d",
+}
 COST_SCENARIOS = {
     "optimistic": {
         "base_slippage_bps": 0.0,
@@ -124,6 +143,26 @@ ABLATION_STEPS = [
             "avg_trade_size_surprise_20d",
             "price_volume_pressure_10d",
             "gap_intraday_divergence_5d",
+        ],
+    ),
+    (
+        "all_fifteen",
+        [
+            "amount_mean_sd_log",
+            "buy_sell_imbalance_surprise_10d",
+            "intraday_range_10d",
+            "reversal_5d",
+            "avg_trade_size_surprise_20d",
+            "price_volume_pressure_10d",
+            "gap_intraday_divergence_5d",
+            "momentum_20d",
+            "realized_volatility_20d",
+            "amihud_illiquidity_20d",
+            "volume_acceleration_5_20",
+            "close_location_10d",
+            "overnight_reversal_5d",
+            "volume_price_trend_10d",
+            "downside_risk_ratio_20d",
         ],
     ),
 ]
@@ -253,6 +292,8 @@ def compute_weights(
 
 def factor_signal_scale(factor: str) -> float:
     """Return the conservative composite-score multiplier for one factor."""
+    if factor in EXTENDED_FACTORS:
+        return EXTENDED_FACTOR_SIGNAL_SCALE
     return NEW_FACTOR_SIGNAL_SCALE if factor in NEW_FACTORS else 1.0
 
 
@@ -1387,6 +1428,8 @@ def run_backtests(
         "recommended_turnover_policy": RECOMMENDED_TURNOVER_POLICY,
         "new_factors": sorted(NEW_FACTORS),
         "new_factor_signal_scale": NEW_FACTOR_SIGNAL_SCALE,
+        "extended_factors": sorted(EXTENDED_FACTORS),
+        "extended_factor_signal_scale": EXTENDED_FACTOR_SIGNAL_SCALE,
         "suspension_rule": "entry-day volume <= 0 or amount <= 0 blocks trading",
         "limit_rule": (
             "one-price day and entry/previous-close move >= 9.5%; "

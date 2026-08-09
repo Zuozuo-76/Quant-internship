@@ -102,7 +102,8 @@ def validate(root: Path) -> dict:
     backtest_summary = pd.read_csv(root / "backtest" / "backtest_summary.csv")
     lstm_metrics = pd.read_csv(root / "lstm" / "metrics.csv")
     walk_forward_metrics = pd.read_csv(root / "lstm" / "walk_forward_metrics.csv")
-    if len(factor_summary) != 7 or len(backtest_summary) != 4 or len(lstm_metrics) != 1:
+    factor_count = len(factor_summary)
+    if factor_count != 15 or len(backtest_summary) != 4 or len(lstm_metrics) != 1:
         raise AssertionError("Analysis output row count mismatch")
     expected_modes = {"next_close_to_close", "next_open_to_open"}
     if set(backtest_summary["mode"]) != expected_modes:
@@ -151,12 +152,16 @@ def validate(root: Path) -> dict:
             raise AssertionError("Cost-sensitivity returns are not monotonic")
 
     ablation = pd.read_csv(root / "backtest" / "factor_ablation.csv")
-    if len(ablation) != 14 or set(ablation["n_factors"]) != set(range(1, 8)):
+    expected_ablation_sizes = {1, 2, 3, 4, 5, 6, 7, factor_count}
+    if (
+        len(ablation) != len(expected_modes) * len(expected_ablation_sizes)
+        or set(ablation["n_factors"]) != expected_ablation_sizes
+    ):
         raise AssertionError("Factor ablation table is incomplete")
     correlation = pd.read_csv(
         root / "evaluation" / "factor_correlation.csv", index_col="factor"
     )
-    if correlation.shape != (7, 7) or not np.allclose(
+    if correlation.shape != (factor_count, factor_count) or not np.allclose(
         correlation.to_numpy(), correlation.to_numpy().T, equal_nan=True
     ):
         raise AssertionError("Factor-correlation matrix is invalid")
@@ -357,7 +362,7 @@ def validate(root: Path) -> dict:
         "minute_shape_each": [253, 300],
         "minute_includes_1500": True,
         "no_trade_cells_checked": no_trade_checks,
-        "factor_count": len(factor_summary),
+        "factor_count": factor_count,
         "backtest_variants": len(backtest_summary),
         "backtest_execution_delay": "t+1",
         "backtest_cost_model": "fee + slippage + square-root impact",

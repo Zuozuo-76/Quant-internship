@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Construct seven daily factors from processed field tables and save CSV files."""
+"""Construct fifteen daily factors from processed field tables and save CSV files."""
 
 from __future__ import annotations
 
@@ -49,6 +49,46 @@ FACTOR_META = {
         "name_zh": "5日隔夜-日内收益背离",
         "formula": "mean_5d((open / close_lag_1d - 1) - (close / open - 1))",
         "kind": "新增因子",
+    },
+    "momentum_20d": {
+        "name_zh": "20日价格动量",
+        "formula": "close / close_lag_20d - 1",
+        "kind": "扩展因子",
+    },
+    "realized_volatility_20d": {
+        "name_zh": "20日已实现波动率",
+        "formula": "sd_20d(return_1d)",
+        "kind": "扩展因子",
+    },
+    "amihud_illiquidity_20d": {
+        "name_zh": "20日Amihud非流动性",
+        "formula": "mean_20d(abs(return_1d) / amount)",
+        "kind": "扩展因子",
+    },
+    "volume_acceleration_5_20": {
+        "name_zh": "5比20日成交量加速度",
+        "formula": "mean_5d(volume) / mean_20d(volume) - 1",
+        "kind": "扩展因子",
+    },
+    "close_location_10d": {
+        "name_zh": "10日收盘位置",
+        "formula": "mean_10d((2*close-high-low)/(high-low))",
+        "kind": "扩展因子",
+    },
+    "overnight_reversal_5d": {
+        "name_zh": "5日隔夜反转",
+        "formula": "-mean_5d(open / close_lag_1d - 1)",
+        "kind": "扩展因子",
+    },
+    "volume_price_trend_10d": {
+        "name_zh": "10日量价趋势",
+        "formula": "sum_10d(sign(return_1d)*volume) / sum_10d(volume)",
+        "kind": "扩展因子",
+    },
+    "downside_risk_ratio_20d": {
+        "name_zh": "20日下行波动占比",
+        "formula": "sqrt(mean_20d(min(return_1d,0)^2) / mean_20d(return_1d^2))",
+        "kind": "扩展因子",
     },
 }
 
@@ -110,6 +150,10 @@ def build_factors(processed: Path, output: Path) -> dict[str, pd.DataFrame]:
     ).std()
     overnight_gap = open_price.div(close.shift(1).replace(0, np.nan)) - 1
     intraday_return = close.div(open_price.replace(0, np.nan)) - 1
+    intraday_span = (high - low).replace(0, np.nan)
+    signed_volume = np.sign(daily_return) * volume
+    downside_squared_return = daily_return.clip(upper=0).pow(2)
+    total_squared_return = daily_return.pow(2)
     factors = {
         "amount_mean_sd_log": pd.DataFrame(
             amount_factor_values, index=amount.index, columns=amount.columns
@@ -128,6 +172,36 @@ def build_factors(processed: Path, output: Path) -> dict[str, pd.DataFrame]:
         "gap_intraday_divergence_5d": (
             overnight_gap - intraday_return
         ).rolling(5, min_periods=5).mean(),
+        "momentum_20d": close.div(close.shift(20).replace(0, np.nan)) - 1,
+        "realized_volatility_20d": daily_return.rolling(
+            20, min_periods=20
+        ).std(),
+        "amihud_illiquidity_20d": (
+            daily_return.abs().div(amount.replace(0, np.nan))
+        ).rolling(20, min_periods=20).mean(),
+        "volume_acceleration_5_20": volume.rolling(
+            5, min_periods=5
+        ).mean().div(
+            volume.rolling(20, min_periods=20).mean().replace(0, np.nan)
+        ) - 1,
+        "close_location_10d": (
+            (2 * close - high - low).div(intraday_span)
+        ).rolling(10, min_periods=10).mean(),
+        "overnight_reversal_5d": -overnight_gap.rolling(
+            5, min_periods=5
+        ).mean(),
+        "volume_price_trend_10d": signed_volume.rolling(
+            10, min_periods=10
+        ).sum().div(
+            volume.rolling(10, min_periods=10).sum().replace(0, np.nan)
+        ),
+        "downside_risk_ratio_20d": np.sqrt(
+            downside_squared_return.rolling(20, min_periods=20).mean().div(
+                total_squared_return.rolling(20, min_periods=20)
+                .mean()
+                .replace(0, np.nan)
+            )
+        ),
     }
 
     daily_dir = output / "daily"

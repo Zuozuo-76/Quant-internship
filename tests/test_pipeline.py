@@ -22,6 +22,7 @@ from analyze_factors_backtest import (
 from import_trade_data import summarize_stock, trading_minutes
 from build_kline_csv import FIELDS, build_daily_kline
 from evaluate_factors import compute_factor_correlation, neutralize_cross_section
+from construct_factors import FACTOR_META
 from train_lstm_pytorch import (
     TorchLSTM,
     make_walk_forward_folds,
@@ -148,11 +149,21 @@ class LSTMTests(unittest.TestCase):
 
 
 class RiskAndExecutionTests(unittest.TestCase):
+    def test_factor_catalog_contains_fifteen_unique_factors(self):
+        self.assertEqual(len(FACTOR_META), 15)
+        self.assertEqual(len(set(FACTOR_META)), 15)
+        self.assertTrue({
+            "momentum_20d",
+            "amihud_illiquidity_20d",
+            "downside_risk_ratio_20d",
+        }.issubset(FACTOR_META))
+
     def test_exploratory_factor_signal_scale_is_conservative(self):
         self.assertEqual(factor_signal_scale("amount_mean_sd_log"), 1.0)
         self.assertEqual(
             factor_signal_scale("avg_trade_size_surprise_20d"), 0.10
         )
+        self.assertEqual(factor_signal_scale("momentum_20d"), 0.02)
 
     def test_rank_buffer_keeps_existing_names_inside_exit_band(self):
         ranked = pd.DataFrame({
