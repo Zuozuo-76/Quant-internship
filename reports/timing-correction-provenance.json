@@ -1,0 +1,25 @@
+{
+  "date": "09/09/2026",
+  "base_commit": "abf754cee334f4018627e2191ad0875ca5e13717",
+  "data_source": "Existing local processed assignment data; raw ticks not rebuilt in this run",
+  "daily_inputs_sha256": {
+    "trade_count.csv": "49219f9142d8ca9ca3effa0bc77547782812f195a788412b5738351a6a2e8001",
+    "open.csv": "078ab404d61584a73af591fdcf1daa122399c8fd506e02add7e5a2f7a9202849",
+    "high.csv": "3d5c13e5bb3360b980c5da05cb54187952278bdbd02e5555c7320a263c2aed97",
+    "close.csv": "252b270ffa51228a92d62ef238e9ab1a2fe5bac3d2336d0bbce8a5fb5b97b2da",
+    "low.csv": "84042a4e55960c30a8fa95f5c3055e994dc64fd3e375e833cbf29ee48055afd1",
+    "sell_volume.csv": "b7d5f18122f4b41eea30a18a364e8612621cfc63817fbf35f915ebaf76e772c1",
+    "buy_amount.csv": "62f9a346404165703102d85590e36e274c801b5c68fea087e5810a1d68c9a018",
+    "amount.csv": "15ad1fb46092d1377d6dfc3e05604f9c2f178ccf5e30c5e9c680afc9b2d47018",
+    "sell_amount.csv": "7d0b58e4dd7e26a2fa96a052aea2cff38cca613642f3bd1fb9d213a39a69f221",
+    "volume.csv": "d9ce0f33ce4c7ef65f30318699496c1d4a1808fee0d4bf282d949a6a3a0999c5",
+    "buy_volume.csv": "33af73b51ebe023203b27c5e432f6b25c4a69451988638a139dedf570857ec81"
+  },
+  "strategy": "vol_target_15_baseline_signal",
+  "execution": "next_open_to_open",
+  "ic_lag_sessions": 2,
+  "volatility_budget": "completed returns only",
+  "lstm_device": "cpu",
+  "lstm_seed": 42,
+  "lstm_epochs": 3
+}

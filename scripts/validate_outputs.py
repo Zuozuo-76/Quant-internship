@@ -236,10 +236,16 @@ def validate(root: Path) -> dict:
     ]
     if len(optimized_full_open) != 1:
         raise AssertionError("Missing optimized next-open full-sample metrics")
-    if optimized_full_open["total_return"].iloc[0] <= 0.25:
-        raise AssertionError("Optimized next-open total return did not exceed 25%")
-    if optimized_full_open["annual_return"].iloc[0] <= 0.25:
-        raise AssertionError("Optimized next-open annual return did not exceed 25%")
+    # Validation checks arithmetic, not a desired investment outcome.
+    optimized_daily = pd.read_csv(root / "backtest" / "optimized_strategy_results.csv")
+    for row in optimized_metrics.itertuples(index=False):
+        daily_rows = optimized_daily.loc[optimized_daily["mode"].eq(row.mode)].sort_values("signal_date")
+        split = int(len(daily_rows) * 0.8)
+        sample = {"full": daily_rows, "research80": daily_rows.iloc[:split], "holdout20": daily_rows.iloc[split:]}[row.sample]
+        compounded = float((1 + sample["net_return"]).prod() - 1)
+        annualized = (1 + compounded) ** (252 / len(sample)) - 1
+        if not np.allclose([row.total_return, row.annual_return], [compounded, annualized]):
+            raise AssertionError("Optimized return metrics do not reconcile with daily results")
 
     low_risk_metrics = pd.read_csv(root / "backtest" / "low_risk_strategy_metrics.csv")
     expected_risk_variants = {
@@ -337,6 +343,12 @@ def validate(root: Path) -> dict:
     }
     if not required_prediction_columns.issubset(predictions.columns):
         raise AssertionError("LSTM predictions are missing logistic baseline outputs")
+    if "majority_probability_up" not in predictions:
+        raise AssertionError("Missing training-estimated majority probabilities")
+    for fold, rows in predictions.groupby("fold"):
+        training = walk_forward_metrics.loc[walk_forward_metrics["fold"].eq(fold) & walk_forward_metrics["split"].eq("train")]
+        if len(training) != 1 or not np.allclose(rows["majority_probability_up"], training["positive_rate"].iloc[0]):
+            raise AssertionError("Majority baseline does not match fold training labels")
     comparison = pd.read_csv(root / "lstm" / "model_comparison.csv")
     if set(comparison["model"]) != {
         "majority_class", "logistic_regression", "lstm"

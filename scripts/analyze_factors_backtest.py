@@ -44,6 +44,8 @@ MAX_IMPACT_RATE = 0.02
 LIMIT_THRESHOLD = 0.095
 TOP_N = 10
 IC_LOOKBACK = 20
+# A return indexed by signal date s ends on s+2 in both execution modes.
+IC_AVAILABILITY_LAG = 2
 IC_EWMA_SPAN = 60
 IC_EWMA_MIN_PERIODS = 20
 MAX_FACTOR_WEIGHT = 0.25
@@ -292,16 +294,23 @@ def compute_weights(
         )
         rows.append({"factor": factor, "date": date, "raw_ic": raw_ic})
     weights = pd.DataFrame(rows).sort_values(["factor", "date"])
+    # Shift on the trading calendar, not the possibly sparse factor rows.
+    original_index = pd.MultiIndex.from_frame(weights[["factor", "date"]])
+    calendar_index = pd.MultiIndex.from_product(
+        [weights["factor"].unique(), returns.index.sort_values()],
+        names=["factor", "date"],
+    )
+    weights = weights.set_index(["factor", "date"]).reindex(calendar_index).reset_index()
     if strategy == "leaky_same_day_ic":
         weights["weight"] = weights["raw_ic"]
     elif strategy == "historical_20d_ic":
         weights["weight"] = weights.groupby("factor")["raw_ic"].transform(
-            lambda series: series.shift(1).rolling(
+            lambda series: series.shift(IC_AVAILABILITY_LAG).rolling(
                 IC_LOOKBACK, min_periods=IC_LOOKBACK
             ).mean()
         )
     elif strategy == "historical_60d_ewma_icir":
-        prior_ic = weights.groupby("factor")["raw_ic"].shift(1)
+        prior_ic = weights.groupby("factor")["raw_ic"].shift(IC_AVAILABILITY_LAG)
         weights["ewma_ic"] = prior_ic.groupby(weights["factor"]).transform(
             lambda series: series.ewm(
                 span=IC_EWMA_SPAN,
@@ -327,7 +336,7 @@ def compute_weights(
         ).clip(-MAX_FACTOR_WEIGHT, MAX_FACTOR_WEIGHT)
     else:
         raise ValueError(strategy)
-    return weights
+    return weights.set_index(["factor", "date"]).loc[original_index].reset_index()
 
 
 def factor_signal_scale(factor: str) -> float:
@@ -705,7 +714,8 @@ def simulate(
     results = []
     holdings = []
     trade_parts = []
-    prior_gross_returns: list[float] = []
+    prior_gross_returns: list[tuple[pd.Timestamp, float]] = []
+    return_end_dates = pd.Series(returns.index, index=returns.index).shift(-IC_AVAILABILITY_LAG)
     for period_number, (date, desired) in enumerate(
         ranked.groupby("date", sort=True)
     ):
@@ -725,7 +735,8 @@ def simulate(
         if rebalanced:
             if target_volatility is not None:
                 exposure, trailing_volatility = volatility_target_exposure(
-                    prior_gross_returns,
+                    [value for available_on, value in prior_gross_returns
+                     if available_on <= date],
                     target_volatility,
                     minimum=minimum_exposure,
                     maximum=maximum_exposure,
@@ -868,7 +879,7 @@ def simulate(
             if weight > 0 and denominator > 0
         }
         nav = nav_end
-        prior_gross_returns.append(gross_return)
+        prior_gross_returns.append((return_end_dates.loc[date], gross_return))
 
     return (
         pd.DataFrame(results),
@@ -1172,9 +1183,9 @@ def write_low_risk_report(
         "## 实施内容",
         "",
         "- 新增 20 日下行波动率、20 日特质波动率和 60 日下行 Beta，方向统一为数值越高风险越低。",
-        "- 因子权重使用仅含昨日及更早 IC 的 60 日 EWMA ICIR，单因子绝对权重上限 25%。",
+        "- 因子权重使用仅含截至信号日已结束持有期的 IC（按交易日滞后 2 期） 的 60 日 EWMA ICIR，单因子绝对权重上限 25%。",
         "- Top30 风险加权版本使用正向综合得分乘逆 20 日波动率分配；正常可交易的新目标单股上限 4%，涨跌停或停牌冻结仓位可能暂时超过该值。",
-        "- 总敞口使用过去 20 个已实现组合收益估计波动率，目标分别为 15% 和 18%，敞口限制在 0.5 至 1.0。",
+        "- 总敞口使用截至信号日已结束持有期的过去 20 个组合收益估计波动率，目标分别为 15% 和 18%，敞口限制在 0.5 至 1.0。",
         "- 所有版本均为每 5 日调仓、Top60 退出缓冲、次日开盘执行，并计入原有费用、滑点与冲击成本。",
         "",
         "## 结果对比",
@@ -1194,10 +1205,9 @@ def write_low_risk_report(
             f"{pct(row.worst_5d_return)} | {pct(row.worst_20d_return)} | "
             f"{pct(row.cvar_95)} | {pct(row.average_target_exposure)} |"
         )
-    target_metrics_path = report_output.parent / "backtest" / "target_30_metrics.csv"
     fixed_comparison: list[str] = []
-    if target_metrics_path.exists():
-        fixed_metrics = pd.read_csv(target_metrics_path)
+    if not metrics.empty:
+        fixed_metrics = metrics.loc[metrics["risk_variant"].eq("baseline_equal_weight_1x")]
         fixed_full = fixed_metrics.loc[fixed_metrics["sample"].eq("full")]
         fixed_holdout = fixed_metrics.loc[fixed_metrics["sample"].eq("holdout20")]
         candidate_full = metrics.loc[
@@ -1215,11 +1225,11 @@ def write_low_risk_report(
             cf, ch = candidate_full.iloc[0], candidate_holdout.iloc[0]
             fixed_comparison = [
                 "",
-                "## 与固定杠杆版本比较",
+                "## 与同次重跑的 1x 基线比较",
                 "",
-                f"当前可复现的固定杠杆版本为 {ff.leverage:.2f} 倍。15% 波动率目标保留原信号，只调整总敞口；完整样本年化收益由 {pct(ff.annual_return)} 降至 {pct(cf.annual_return)}，但年化波动由 {pct(ff.annual_volatility)} 降至 {pct(cf.annual_volatility)}，最大回撤由 {pct(ff.max_drawdown)} 改善至 {pct(cf.max_drawdown)}。",
+                f"同次重跑的固定敞口基线为 1.00 倍。15% 波动率目标保留原信号，只调整总敞口；完整样本年化收益由 {pct(ff.annual_return)} 变为 {pct(cf.annual_return)}，但年化波动由 {pct(ff.annual_volatility)} 变为 {pct(cf.annual_volatility)}，最大回撤由 {pct(ff.max_drawdown)} 变为 {pct(cf.max_drawdown)}。",
                 "",
-                f"后 20% 留出期中，年化收益由 {pct(fh.annual_return)} 改善为 {pct(ch.annual_return)}，年化波动由 {pct(fh.annual_volatility)} 降至 {pct(ch.annual_volatility)}，最大回撤由 {pct(fh.max_drawdown)} 改善至 {pct(ch.max_drawdown)}。因此本轮推荐采用 `vol_target_15_baseline_signal`，不采用完整更换因子排序的 `low_risk_target_*`。",
+                f"后 20% 留出期中，年化收益由 {pct(fh.annual_return)} 变为 {pct(ch.annual_return)}，年化波动由 {pct(fh.annual_volatility)} 变为 {pct(ch.annual_volatility)}，最大回撤由 {pct(fh.max_drawdown)} 变为 {pct(ch.max_drawdown)}。该比较保留原版本名称；本次时序修正不基于留出期重新选择策略。",
             ]
     lines += [
         *fixed_comparison,
@@ -1847,6 +1857,8 @@ def run_backtests(
     low_risk_weights.to_csv(output / "low_risk_factor_weights.csv", index=False)
     assumptions = {
         "signal_execution_delay": "signal at t, trade at t+1 open or close",
+        "ic_availability_lag_sessions": IC_AVAILABILITY_LAG,
+        "risk_budget_information": "only portfolio returns ending by signal date",
         "sell_fee": SELL_FEE,
         "base_slippage_bps_each_side": BASE_SLIPPAGE_BPS,
         "impact_model": "min(max_rate, coefficient * sqrt(order_notional / daily_amount))",
@@ -1866,7 +1878,7 @@ def run_backtests(
         "risk_control_factors": sorted(RISK_CONTROL_FACTORS),
         "risk_factor_signal_scale": RISK_FACTOR_SIGNAL_SCALE,
         "low_risk_ic_weighting": {
-            "method": "60-day EWMA ICIR using raw IC through t-1",
+            "method": "60-day EWMA ICIR using raw IC through t-2 (return ends by signal close)",
             "span": IC_EWMA_SPAN,
             "min_periods": IC_EWMA_MIN_PERIODS,
             "max_absolute_factor_weight": MAX_FACTOR_WEIGHT,

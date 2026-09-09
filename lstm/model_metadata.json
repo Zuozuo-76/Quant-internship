@@ -11,6 +11,7 @@
   ],
   "sequence_length": 20,
   "fold": 3,
+  "majority_probability_up": 0.28854793310165405,
   "best_epoch": 3,
   "train_start": "20250401",
   "train_end": "20250825",
