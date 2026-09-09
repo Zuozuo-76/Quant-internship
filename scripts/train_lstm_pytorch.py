@@ -255,6 +255,7 @@ def predict_proba(
 def metrics_from_probability(
     y: np.ndarray,
     probability: np.ndarray,
+    majority_probability: np.ndarray | float | None = None,
 ) -> dict[str, float]:
     prediction = probability >= 0.5
     clipped = probability.clip(1e-8, 1 - 1e-8)
@@ -276,7 +277,10 @@ def metrics_from_probability(
     ).ravel()
     return {
         "positive_rate": float(y.mean()),
-        "majority_baseline_accuracy": max(float(y.mean()), 1 - float(y.mean())),
+        "majority_baseline_accuracy": (
+            float(np.mean(y == (np.asarray(majority_probability) >= 0.5)))
+            if majority_probability is not None else math.nan
+        ),
         "loss": loss,
         "accuracy": float(accuracy_score(y, prediction)),
         "balanced_accuracy": float(balanced_accuracy_score(y, prediction)),
@@ -560,6 +564,7 @@ def train_fold(
         raise RuntimeError(f"Fold {fold_number} produced no checkpoint")
     model.load_state_dict(best_state)
 
+    majority_probability = float(standardized["train"][1].mean())
     metrics_rows = []
     probabilities = {}
     for split, (split_x, split_y, _split_meta) in standardized.items():
@@ -570,7 +575,7 @@ def train_fold(
             "model": "lstm",
             "split": split,
             "n_samples": len(split_y),
-            **metrics_from_probability(split_y, probability),
+            **metrics_from_probability(split_y, probability, majority_probability),
         })
 
     logistic = LogisticRegression(
@@ -592,11 +597,12 @@ def train_fold(
             "model": "logistic_regression",
             "split": split,
             "n_samples": len(split_y),
-            **metrics_from_probability(split_y, probability),
+            **metrics_from_probability(split_y, probability, majority_probability),
         })
     test_x, test_y, test_meta = standardized["test"]
     predictions = test_meta.copy()
     predictions.insert(0, "fold", fold_number)
+    predictions["majority_probability_up"] = majority_probability
     predictions["label_up"] = test_y.astype(int)
     predictions["probability_up"] = probabilities["test"]
     predictions["prediction_up"] = (
@@ -617,6 +623,7 @@ def train_fold(
         "features": FEATURES,
         "sequence_length": int(x.shape[1]),
         "fold": fold_number,
+        "majority_probability_up": majority_probability,
         "best_epoch": best_epoch,
         "train_start": str(fold["train_dates"][0]),
         "train_end": str(fold["train_dates"][-1]),
@@ -710,6 +717,7 @@ def train_walk_forward(
     overall = metrics_from_probability(
         predictions["label_up"].to_numpy(float),
         predictions["probability_up"].to_numpy(float),
+        predictions["majority_probability_up"].to_numpy(float),
     )
     overall_table = pd.DataFrame([{
         "split": "walk_forward_oos",
@@ -722,12 +730,12 @@ def train_walk_forward(
     overall_table.to_csv(output / "metrics.csv", index=False)
 
     labels = predictions["label_up"].to_numpy(float)
-    majority_probability = np.full(len(labels), labels.mean(), dtype=float)
+    majority_probability = predictions["majority_probability_up"].to_numpy(float)
     comparison = pd.DataFrame([
         {
             "model": "majority_class",
             "n_samples": len(labels),
-            **metrics_from_probability(labels, majority_probability),
+            **metrics_from_probability(labels, majority_probability, majority_probability),
         },
         {
             "model": "logistic_regression",
@@ -735,6 +743,7 @@ def train_walk_forward(
             **metrics_from_probability(
                 labels,
                 predictions["logistic_probability_up"].to_numpy(float),
+                majority_probability,
             ),
         },
         {
@@ -802,7 +811,7 @@ def train_walk_forward(
 
 - 样本数：{int(result['n_samples'])}
 - 上涨占比：{result['positive_rate']:.2%}
-- 多数类基线准确率：{result['majority_baseline_accuracy']:.2%}
+- 多数类基线准确率（每折仅用训练标签估计）：{result['majority_baseline_accuracy']:.2%}
 - LSTM 准确率：{result['accuracy']:.2%}
 - 平衡准确率：{result['balanced_accuracy']:.2%}
 - Precision：{result['precision']:.2%}

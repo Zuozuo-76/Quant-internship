@@ -86,11 +86,13 @@
   ],
   "risk_factor_signal_scale": 0.1,
   "low_risk_ic_weighting": {
-    "method": "60-day EWMA ICIR using raw IC through t-1",
+    "method": "60-day EWMA ICIR using raw IC through t-2 (return ends by signal close)",
     "span": 60,
     "min_periods": 20,
     "max_absolute_factor_weight": 0.25
   },
   "suspension_rule": "entry-day volume <= 0 or amount <= 0 blocks trading",
-  "limit_rule": "one-price day and entry/previous-close move >= 9.5%; limit-up blocks buys, limit-down blocks sells"
+  "limit_rule": "one-price day and entry/previous-close move >= 9.5%; limit-up blocks buys, limit-down blocks sells",
+  "ic_availability_lag_sessions": 2,
+  "risk_budget_information": "only portfolio returns ending by signal date"
 }
